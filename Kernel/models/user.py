@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from kernell.models.role import Role
+from Kernel.models.role import Role
 
 @dataclass
 class User:

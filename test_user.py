@@ -1,5 +1,5 @@
-from kernell.models.user import User
-from kernell.models.role import Role
+from Kernel.models.user import User
+from Kernel.models.role import Role
 
 user = User(
     id=1,
