@@ -1,33 +1,51 @@
-import hashlib
-from typing import Optional
 from Kernel.models.user import User
+from Kernel.models.role import Role
+
 
 class AuthService:
+    """
+    Handles authentication and stores the current session user.
+    """
+
     def __init__(self, user_repository):
-        # We inject the repository — Kernel never imports Infrastructure
         self.user_repository = user_repository
+        self.current_user = None
 
-    def login(self, username: str, password: str) -> Optional[User]:
+    def login(self, username, password):
         """
-        Returns the User object if credentials are valid.
-        Returns None if login fails.
+        Authenticate user and set current_user if successful.
         """
-        user = self.user_repository.find_by_username(username)
 
-        if user is None:
-            return None  # Username not found
+        user_data = self.user_repository.find_by_credentials(
+            username,
+            password
+        )
 
-        if not user.is_active:
-            return None  # Account disabled
+        # If credentials are wrong
+        if user_data is None:
+            self.current_user = None
+            return None
 
-        if not self._verify_password(password, username):
-            return None  # Wrong password
+        # Build User object from DB result
+        user = User(
+            user_id=user_data[0],
+            username=user_data[1],
+            role=Role(user_data[2].upper())
+        )
+
+        # Store session user (IMPORTANT FIX)
+        self.current_user = user
 
         return user
 
-    def _verify_password(self, password: str, username: str) -> bool:
-        stored = self.user_repository.get_password_hash(username)
-        return password == stored
-    @staticmethod
-    def hash_password(password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+    def logout(self):
+        """
+        Clear current session.
+        """
+        self.current_user = None
+
+    def is_authenticated(self):
+        """
+        Check if a user is logged in.
+        """
+        return self.current_user is not None

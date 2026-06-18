@@ -1,42 +1,23 @@
-from typing import Optional
-from Kernel.models.user import User
-from Kernel.models.role import Role
-from Infrastructure.database import get_connection
+import sqlite3
+
 
 class UserRepository:
 
-    def find_by_username(self, username: str) -> Optional[User]:
-        """Finds a user by username. Returns User or None."""
-        conn = get_connection()
-        try:
-            row = conn.execute("""
-                SELECT u.id, u.username, u.full_name, u.is_active, r.name as role_name
-                FROM users u
-                JOIN roles r ON u.role_id = r.id
-                WHERE u.username = ?
-            """, (username,)).fetchone()
+    def __init__(self, db_path="taxes.db"):
+        self.db_path = db_path
 
-            if row is None:
-                return None
+    def find_by_credentials(self, username, password):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
 
-            return User(
-                id=row["id"],
-                username=row["username"],
-                full_name=row["full_name"],
-                role=Role(row["role_name"]),
-                is_active=bool(row["is_active"]),
-            )
-        finally:
-            conn.close()
+        cursor.execute("""
+            SELECT id, username, role
+            FROM users
+            WHERE username = ?
+            AND password_hash = ?
+        """, (username, password))
 
-    def get_password_hash(self, username: str) -> Optional[str]:
-        """Returns the stored password hash for a username."""
-        conn = get_connection()
-        try:
-            row = conn.execute(
-                "SELECT password_hash FROM users WHERE username = ?",
-                (username,)
-            ).fetchone()
-            return row["password_hash"] if row else None
-        finally:
-            conn.close()
+        row = cursor.fetchone()
+        conn.close()
+
+        return row
