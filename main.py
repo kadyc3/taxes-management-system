@@ -1,83 +1,123 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QWidget
 
+# Services
 from Kernel.services.auth_service import AuthService
 from Kernel.services.dashboard_service import DashboardService
-from Infrastructure.repositories.user_repository import UserRepository
+from Kernel.services.declaration_service import DeclarationService
+from Kernel.services.audit_service import AuditService
+from Kernel.services.taxpayer_service import TaxpayerService
 
+# Repositories
+from Infrastructure.repositories.user_repository import UserRepository
+from Infrastructure.repositories.taxpayer_repository import TaxpayerRepository
+from Infrastructure.repositories.declaration_repository import DeclarationRepository
+
+# UI
 from GUI.windows.login_window import LoginWindow
 from GUI.windows.dashboard_window import DashboardWindow
+from GUI.pages.taxpayer_page import TaxpayerPage
+from GUI.pages.declaration_page import DeclarationPage
 
+from Infrastructure.database.connection import DatabaseConnection
+from Infrastructure.repositories.audit_repository import AuditRepository
+from Infrastructure.migrations.schema import DatabaseInitializer
 
 def main():
     print("🚀 Starting application...")
 
     app = QApplication(sys.argv)
-    print("✅ QApplication created")
+     # =========================
+    # DATABASE INITIALIZATION
+    # =========================
+    db_init = DatabaseInitializer()
+    db_init.initialize()
+    print("✅ Database initialized")
+    # ----------------------------
+    # Database
+    # ----------------------------
+    db = DatabaseConnection()
 
     # ----------------------------
-    # Core services
+    # Repositories
     # ----------------------------
-    user_repo = UserRepository()
-    print("✅ UserRepository created")
+    user_repo = UserRepository(db)
+    taxpayer_repo = TaxpayerRepository(db)
+    declaration_repo = DeclarationRepository(db)
+    audit_repo = AuditRepository(db)
 
+
+    print("✅ Repositories created")
+
+    # ==================================================
+    # Services (BUSINESS LAYER)
+    # ==================================================
     auth_service = AuthService(user_repo)
-    print("✅ AuthService created")
+    audit_service = AuditService(audit_repo)
+    taxpayer_service = TaxpayerService(taxpayer_repo, audit_service)
 
+    taxpayer_service = TaxpayerService(
+    taxpayer_repo,
+    audit_service
+    )
+
+    declaration_service = DeclarationService(
+        declaration_repo,
+        taxpayer_repo,
+        audit_service
+    )
+
+    dashboard_service = DashboardService(
+    taxpayer_service,
+    declaration_service,
+    audit_service
+)
+
+    print("✅ Services created")
+
+    # ==================================================
+    # UI state
+    # ==================================================
     dashboard = None
     login_window = None
 
-    # ----------------------------
-    # Login success callback
-    # ----------------------------
+    # ==================================================
+    # Login callback
+    # ==================================================
     def on_login_success(user):
         nonlocal dashboard, login_window
 
         print(f"✅ Login successful: {user.username}")
-
-        dashboard_service = DashboardService(user)
-
-        # Temporary MVP pages (replace later with real ones)
-        taxpayer_page = QWidget()
-        declaration_page = QWidget()
-
-        def on_logout():
-            dashboard.close()
-            login_window.show()
+        print(taxpayer_service.get_all())
 
         dashboard = DashboardWindow(
             auth_service=auth_service,
             dashboard_service=dashboard_service,
-            taxpayer_page=taxpayer_page,
-            declaration_page=declaration_page,
+            taxpayer_page=TaxpayerPage(taxpayer_service),
+            declaration_page = DeclarationPage(declaration_service),  # still placeholder for now
             on_logout=on_logout
         )
 
         dashboard.show()
         login_window.hide()
 
-    # ----------------------------
-    # Login window
-    # ----------------------------
-    print("✅ Creating LoginWindow")
+    def on_logout():
+        nonlocal dashboard, login_window
+        dashboard.close()
+        login_window.show()
 
+    # ==================================================
+    # Login window
+    # ==================================================
     login_window = LoginWindow(
         auth_service=auth_service,
         on_login_success=on_login_success
     )
 
-    print("✅ Showing LoginWindow")
     login_window.show()
-
-    print("✅ Entering Qt event loop")
 
     sys.exit(app.exec())
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print("❌ ERROR:")
-        print(e)
-        raise
+    main()

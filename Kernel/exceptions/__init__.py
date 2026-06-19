@@ -1,3 +1,17 @@
-from .authentication_exception import AuthenticationException
+from .exceptions import (
+    TaxSystemError,
+    ValidationError,
+    NotFoundError,
+    DuplicateError,
+    AuthenticationError,
+    PermissionError,
+)
 
-__all__ = ["AuthenticationException"]
+__all__ = [
+    "TaxSystemError",
+    "ValidationError",
+    "NotFoundError",
+    "DuplicateError",
+    "AuthenticationError",
+    "PermissionError",
+]

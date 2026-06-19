@@ -1,13 +1,13 @@
 import sqlite3
-
+from Infrastructure.database.connection import DatabaseConnection
 
 class UserRepository:
 
-    def __init__(self, db_path="taxes.db"):
-        self.db_path = db_path
+    def __init__(self, db: DatabaseConnection):
+        self.db = db
 
     def find_by_credentials(self, username, password):
-        conn = sqlite3.connect(self.db_path)
+        conn = self.db.get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
