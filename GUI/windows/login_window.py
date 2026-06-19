@@ -67,6 +67,7 @@ class LoginWindow(QWidget):
 
         try:
             user = self.auth_service.login(username, password)
+            print("DEBUG USER:", user)
             self.on_login_success(user)
 
         except AuthenticationException as e:

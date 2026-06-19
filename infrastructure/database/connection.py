@@ -9,6 +9,7 @@ class DatabaseConnection:
     _instance: Optional["DatabaseConnection"] = None
     _lock = threading.Lock()
 
+
     def __init__(self, db_path: str = "taxes.db"):
         self._db_path = db_path
         self._local = threading.local()
@@ -54,3 +55,4 @@ class DatabaseConnection:
         if conn:
             conn.close()
             self._local.conn = None
+    

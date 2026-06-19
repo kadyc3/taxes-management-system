@@ -1,6 +1,8 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from Infrastructure.migrations.schema import DatabaseInitializer
+
 # Services
 from Kernel.services.auth_service import AuthService
 from Kernel.services.dashboard_service import DashboardService
@@ -85,6 +87,9 @@ def main():
     # Login callback
     # ==================================================
     def on_login_success(user):
+        if user is None:
+            print("❌ Login failed (wrong credentials)")
+            return
         nonlocal dashboard, login_window
 
         print(f"✅ Login successful: {user.username}")

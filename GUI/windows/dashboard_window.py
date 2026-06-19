@@ -297,7 +297,7 @@ class DashboardWindow(QMainWindow):
                 widget.deleteLater()
 
         for log in summary["recent_activity"]:
-            text = f"[{log.created_at[:16]}]  {log.action} {log.entity}  —  {log.detail or ''}"
+            text = f"[{log.created_at.strftime('%Y-%m-%d %H:%M')}]  {log.action} {log.entity_type} #{log.entity_id} {log.details or ''}"
             lbl = QLabel(text)
             lbl.setStyleSheet("font-size: 8pt; color: #555;")
             self._activity_layout.addWidget(lbl)

@@ -10,14 +10,21 @@ class UserRepository:
         conn = self.db.get_connection()
         cursor = conn.cursor()
 
+        print("DEBUG LOGIN INPUT:", username, password)
+
+        cursor.execute("SELECT id, username, role, password FROM users")
+        users = cursor.fetchall()
+        print("ALL USERS:", users)
+
         cursor.execute("""
             SELECT id, username, role
             FROM users
             WHERE username = ?
-            AND password_hash = ?
-        """, (username, password))
+            AND password = ?
+        """, (username.strip(), password.strip()))
 
         row = cursor.fetchone()
-        conn.close()
+
+        print("MATCH RESULT:", row)
 
         return row

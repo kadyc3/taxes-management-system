@@ -4,6 +4,7 @@ Compatible with the existing schema (users, taxpayers, declarations, audit_log).
 """
 import sqlite3
 import logging
+from Infrastructure.database.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
@@ -80,14 +81,14 @@ class DatabaseInitializer:
         self._db_path = db_path
 
     def initialize(self) -> None:
-        """Create all tables and indexes."""
-        conn = sqlite3.connect(self._db_path)
-        try:
-            conn.executescript(SCHEMA_SQL)
-            conn.commit()
-            logger.info("Database initialized at %s", self._db_path)
-        except Exception as exc:
-            logger.error("Database initialization failed: %s", exc)
-            raise
-        finally:
-            conn.close()
+        db = DatabaseConnection(self._db_path)
+        conn = db.get_connection()
+
+        conn.executescript(SCHEMA_SQL)
+
+        conn.execute("""
+            INSERT OR IGNORE INTO users (username, password, role)
+            VALUES ('admin', 'admin', 'admin')
+        """)
+
+        conn.commit()

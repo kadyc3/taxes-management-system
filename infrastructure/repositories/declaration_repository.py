@@ -1,177 +1,151 @@
-"""Repository for declaration persistence."""
-from datetime import datetime
-from typing import List, Optional
-
-from Infrastructure.database.connection import DatabaseConnection
-from Kernel.models.declaration import Declaration, DeclarationStatus, DeclarationType
-
-
+from Kernel.models.declaration import Declaration
 class DeclarationRepository:
-    def __init__(self, db: DatabaseConnection):
+    def __init__(self, db):
         self._db = db
 
-    def _row_to_declaration(self, row) -> Declaration:
-        d = dict(row)
-
-        def _dt(val):
-            return datetime.fromisoformat(val) if val else None
-
+    def _row(self, r):
         return Declaration(
-            id=d["id"],
-            taxpayer_id=d["taxpayer_id"],
-            declaration_type=DeclarationType(d.get("declaration_type", "income_tax")),
-            fiscal_year=d["fiscal_year"],
-            period=d.get("period"),
-            gross_amount=float(d.get("gross_amount", 0)),
-            tax_rate=float(d.get("tax_rate", 0)),
-            tax_amount=float(d.get("tax_amount", 0)),
-            penalties=float(d.get("penalties", 0)),
-            total_due=float(d.get("total_due", 0)),
-            status=DeclarationStatus(d.get("status", "draft")),
-            notes=d.get("notes"),
-            submitted_at=_dt(d.get("submitted_at")),
-            validated_at=_dt(d.get("validated_at")),
-            created_at=_dt(d.get("created_at")),
-            updated_at=_dt(d.get("updated_at")),
-            taxpayer_name=d.get("taxpayer_name"),
+            id=r["id"],
+            taxpayer_id=r["taxpayer_id"],
+            taxpayer_name=r["name"] if "name" in r.keys() else None,
+            tax_type=r["declaration_type"],
+            fiscal_year=r["fiscal_year"],
+            fiscal_period=r["period"],
+            gross_amount=r["gross_amount"],
+            deductions=r.get("deductions", 0),
+            penalties=r["penalties"],
+            total_due=r["total_due"],
+            status=r["status"],
+            notes=r["notes"],
+            created_at=r["created_at"],
+            updated_at=r["updated_at"],
         )
 
-    def create(self, declaration: Declaration) -> Declaration:
-        now = datetime.now().isoformat()
+    def create(self, d: Declaration):
         conn = self._db.get_connection()
-        cur = conn.execute(
-            """INSERT INTO declarations
-               (taxpayer_id, declaration_type, fiscal_year, period,
-                gross_amount, tax_rate, tax_amount, penalties, total_due,
-                status, notes, submitted_at, validated_at, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                declaration.taxpayer_id,
-                declaration.declaration_type.value,
-                declaration.fiscal_year,
-                declaration.period,
-                declaration.gross_amount,
-                declaration.tax_rate,
-                declaration.tax_amount,
-                declaration.penalties,
-                declaration.total_due,
-                declaration.status.value,
-                declaration.notes,
-                declaration.submitted_at.isoformat() if declaration.submitted_at else None,
-                declaration.validated_at.isoformat() if declaration.validated_at else None,
-                now,
-                now,
-            ),
-        )
+
+        tax = (d.gross_amount - d.deductions) + d.penalties
+
+        cur = conn.execute("""
+            INSERT INTO declarations (
+                taxpayer_id, declaration_type, fiscal_year, period,
+                gross_amount, tax_rate, tax_amount,
+                penalties, total_due, status, notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            d.taxpayer_id,
+            d.tax_type,
+            d.fiscal_year,
+            d.fiscal_period,
+            d.gross_amount,
+            0,
+            tax,
+            d.penalties,
+            tax,
+            d.status,
+            d.notes
+        ))
+
         conn.commit()
-        declaration.id = cur.lastrowid
-        declaration.created_at = datetime.fromisoformat(now)
-        declaration.updated_at = declaration.created_at
-        return declaration
+        d.id = cur.lastrowid
+        d.total_due = tax
+        return d
 
-    def update(self, declaration: Declaration) -> Declaration:
-        now = datetime.now().isoformat()
+    def update(self, d: Declaration):
         conn = self._db.get_connection()
-        conn.execute(
-            """UPDATE declarations SET
-               taxpayer_id=?, declaration_type=?, fiscal_year=?, period=?,
-               gross_amount=?, tax_rate=?, tax_amount=?, penalties=?, total_due=?,
-               status=?, notes=?, submitted_at=?, validated_at=?, updated_at=?
-               WHERE id=?""",
-            (
-                declaration.taxpayer_id,
-                declaration.declaration_type.value,
-                declaration.fiscal_year,
-                declaration.period,
-                declaration.gross_amount,
-                declaration.tax_rate,
-                declaration.tax_amount,
-                declaration.penalties,
-                declaration.total_due,
-                declaration.status.value,
-                declaration.notes,
-                declaration.submitted_at.isoformat() if declaration.submitted_at else None,
-                declaration.validated_at.isoformat() if declaration.validated_at else None,
-                now,
-                declaration.id,
-            ),
-        )
+
+        tax = (d.gross_amount - d.deductions) + d.penalties
+
+        conn.execute("""
+            UPDATE declarations SET
+                taxpayer_id=?,
+                declaration_type=?,
+                fiscal_year=?,
+                period=?,
+                gross_amount=?,
+                penalties=?,
+                total_due=?,
+                status=?,
+                notes=?,
+                updated_at=datetime('now')
+            WHERE id=?
+        """, (
+            d.taxpayer_id,
+            d.tax_type,
+            d.fiscal_year,
+            d.fiscal_period,
+            d.gross_amount,
+            d.penalties,
+            tax,
+            d.status,
+            d.notes,
+            d.id
+        ))
+
         conn.commit()
-        declaration.updated_at = datetime.fromisoformat(now)
-        return declaration
+        d.total_due = tax
+        return d
 
-    def delete(self, declaration_id: int) -> bool:
+    def delete(self, decl_id):
         conn = self._db.get_connection()
-        cur = conn.execute("DELETE FROM declarations WHERE id=?", (declaration_id,))
+        conn.execute("DELETE FROM declarations WHERE id=?", (decl_id,))
         conn.commit()
-        return cur.rowcount > 0
 
-    def find_by_id(self, declaration_id: int) -> Optional[Declaration]:
+    def find_all(self):
         conn = self._db.get_connection()
-        row = conn.execute(
-            """SELECT d.*, t.name as taxpayer_name FROM declarations d
-               LEFT JOIN taxpayers t ON t.id = d.taxpayer_id
-               WHERE d.id=?""",
-            (declaration_id,),
-        ).fetchone()
-        return self._row_to_declaration(row) if row else None
+        rows = conn.execute("""
+            SELECT d.*, t.name
+            FROM declarations d
+            JOIN taxpayers t ON t.id = d.taxpayer_id
+            ORDER BY d.id DESC
+        """).fetchall()
 
-    def find_all(self) -> List[Declaration]:
-        conn = self._db.get_connection()
-        rows = conn.execute(
-            """SELECT d.*, t.name as taxpayer_name FROM declarations d
-               LEFT JOIN taxpayers t ON t.id = d.taxpayer_id
-               ORDER BY d.created_at DESC"""
-        ).fetchall()
-        return [self._row_to_declaration(r) for r in rows]
+        return [self._row(r) for r in rows]
 
-    def find_by_taxpayer(self, taxpayer_id: int) -> List[Declaration]:
+    def find_by_id(self, decl_id):
         conn = self._db.get_connection()
-        rows = conn.execute(
-            """SELECT d.*, t.name as taxpayer_name FROM declarations d
-               LEFT JOIN taxpayers t ON t.id = d.taxpayer_id
-               WHERE d.taxpayer_id=? ORDER BY d.fiscal_year DESC""",
-            (taxpayer_id,),
-        ).fetchall()
-        return [self._row_to_declaration(r) for r in rows]
+        row = conn.execute("""
+            SELECT d.*, t.name
+            FROM declarations d
+            JOIN taxpayers t ON t.id = d.taxpayer_id
+            WHERE d.id=?
+        """, (decl_id,)).fetchone()
 
-    def search(self, query: str) -> List[Declaration]:
-        like = f"%{query}%"
-        conn = self._db.get_connection()
-        rows = conn.execute(
-            """SELECT d.*, t.name as taxpayer_name FROM declarations d
-               LEFT JOIN taxpayers t ON t.id = d.taxpayer_id
-               WHERE t.name LIKE ? OR t.tax_id LIKE ?
-                  OR CAST(d.fiscal_year AS TEXT) LIKE ?
-                  OR d.declaration_type LIKE ?
-               ORDER BY d.created_at DESC""",
-            (like, like, like, like),
-        ).fetchall()
-        return [self._row_to_declaration(r) for r in rows]
+        return self._row(row) if row else None
 
-    def count_by_status(self) -> dict:
+    def search(self, q: str):
+        like = f"%{q}%"
         conn = self._db.get_connection()
-        rows = conn.execute(
-            "SELECT status, COUNT(*) as cnt FROM declarations GROUP BY status"
-        ).fetchall()
-        result = {s.value: 0 for s in DeclarationStatus}
+
+        rows = conn.execute("""
+            SELECT d.*, t.name
+            FROM declarations d
+            JOIN taxpayers t ON t.id = d.taxpayer_id
+            WHERE t.name LIKE ? OR d.declaration_type LIKE ? OR d.period LIKE ?
+            ORDER BY d.id DESC
+        """, (like, like, like)).fetchall()
+
+        return [self._row(r) for r in rows]
+
+    def count_total(self):
+        conn = self._db.get_connection()
+        return conn.execute("SELECT COUNT(*) FROM declarations").fetchone()[0]
+
+    def count_by_status(self):
+        conn = self._db.get_connection()
+        rows = conn.execute("""
+            SELECT status, COUNT(*) as c
+            FROM declarations
+            GROUP BY status
+        """).fetchall()
+
+        result = {"draft": 0, "submitted": 0, "validated": 0, "rejected": 0}
         for r in rows:
-            result[r["status"]] = r["cnt"]
+            result[r["status"]] = r["c"]
         return result
 
-    def total_amount_due(self) -> float:
+    def total_amount_due(self):
         conn = self._db.get_connection()
-        row = conn.execute(
-            "SELECT COALESCE(SUM(total_due),0) FROM declarations WHERE status != 'rejected'"
-        ).fetchone()
-        return float(row[0])
-
-    def recent(self, limit: int = 10) -> List[Declaration]:
-        conn = self._db.get_connection()
-        rows = conn.execute(
-            """SELECT d.*, t.name as taxpayer_name FROM declarations d
-               LEFT JOIN taxpayers t ON t.id = d.taxpayer_id
-               ORDER BY d.created_at DESC LIMIT ?""",
-            (limit,),
-        ).fetchall()
-        return [self._row_to_declaration(r) for r in rows]
+        row = conn.execute("SELECT SUM(total_due) FROM declarations").fetchone()
+        return row[0] or 0
