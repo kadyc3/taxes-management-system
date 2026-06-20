@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from Infrastructure.migrations.schema import DatabaseInitializer
+from infrastructure.migrations.schema import DatabaseInitializer
 
 # Services
 from Kernel.services.auth_service import AuthService
@@ -11,9 +11,9 @@ from Kernel.services.audit_service import AuditService
 from Kernel.services.taxpayer_service import TaxpayerService
 
 # Repositories
-from Infrastructure.repositories.user_repository import UserRepository
-from Infrastructure.repositories.taxpayer_repository import TaxpayerRepository
-from Infrastructure.repositories.declaration_repository import DeclarationRepository
+from infrastructure.repositories.user_repository import UserRepository
+from infrastructure.repositories.taxpayer_repository import TaxpayerRepository
+from infrastructure.repositories.declaration_repository import DeclarationRepository
 
 # UI
 from GUI.windows.login_window import LoginWindow
@@ -21,9 +21,9 @@ from GUI.windows.dashboard_window import DashboardWindow
 from GUI.pages.taxpayer_page import TaxpayerPage
 from GUI.pages.declaration_page import DeclarationPage
 
-from Infrastructure.database.connection import DatabaseConnection
-from Infrastructure.repositories.audit_repository import AuditRepository
-from Infrastructure.migrations.schema import DatabaseInitializer
+from infrastructure.database.connection import DatabaseConnection
+from infrastructure.repositories.audit_repository import AuditRepository
+from infrastructure.migrations.schema import DatabaseInitializer
 
 def main():
     print("🚀 Starting application...")
@@ -99,7 +99,11 @@ def main():
             auth_service=auth_service,
             dashboard_service=dashboard_service,
             taxpayer_page=TaxpayerPage(taxpayer_service),
-            declaration_page = DeclarationPage(declaration_service),  # still placeholder for now
+            declaration_page = DeclarationPage(
+                declaration_service=declaration_service,
+                taxpayer_service=taxpayer_service,
+                auth_service=auth_service,
+            ),
             on_logout=on_logout
         )
 

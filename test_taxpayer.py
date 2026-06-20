@@ -1,10 +1,10 @@
-from Infrastructure.migrations.schema import DatabaseInitializer
+from infrastructure.migrations.schema import DatabaseInitializer
 
 DatabaseInitializer("taxes.db").initialize()
 
-from Infrastructure.database.connection import DatabaseConnection
-from Infrastructure.repositories.taxpayer_repository import TaxpayerRepository
-from Infrastructure.repositories.audit_repository import AuditRepository
+from infrastructure.database.connection import DatabaseConnection
+from infrastructure.repositories.taxpayer_repository import TaxpayerRepository
+from infrastructure.repositories.audit_repository import AuditRepository
 
 from Kernel.services.taxpayer_service import TaxpayerService
 from Kernel.services.audit_service import AuditService
