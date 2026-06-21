@@ -7,12 +7,27 @@ from Kernel.models.taxpayer import Taxpayer, TaxpayerStatus, TaxpayerType
 from Kernel.models.audit_log import AuditAction
 from Kernel.exceptions.exceptions import ValidationError, NotFoundError, DuplicateError
 from Kernel.services.audit_service import AuditService
+from Kernel.models.taxpayer import Taxpayer, TaxpayerType, TaxpayerStatus
 
 
 class TaxpayerService:
     def __init__(self, taxpayer_repo: TaxpayerRepository, audit_service: AuditService):
         self._repo = taxpayer_repo
         self._audit = audit_service
+    
+    def _add_taxpayer(self):
+        new_taxpayer = Taxpayer(
+            tax_id="TEST999",
+            name="New User",
+            taxpayer_type=TaxpayerType.PHYSICAL,
+            status=TaxpayerStatus.ACTIVE,
+            email="test@test.com",
+            phone="123456",
+            address="Tunis"
+        )
+        self.service.create(new_taxpayer)
+        self.load_data()
+
 
     # ---------------------------------------------------------------- validation
     def _validate(self, taxpayer: Taxpayer, is_update: bool = False) -> None:
