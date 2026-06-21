@@ -1,4 +1,5 @@
-from Kernel.models.declaration import Declaration
+from Kernel.models.declaration import DeclarationStatus, DeclarationType, Declaration
+
 class DeclarationRepository:
     def __init__(self, db):
         self._db = db
@@ -8,14 +9,13 @@ class DeclarationRepository:
             id=r["id"],
             taxpayer_id=r["taxpayer_id"],
             taxpayer_name=r["name"] if "name" in r.keys() else None,
-            tax_type=r["declaration_type"],
+            tax_rate=r["declaration_type"],
             fiscal_year=r["fiscal_year"],
-            fiscal_period=r["period"],
+            period=r["period"],
             gross_amount=r["gross_amount"],
-            deductions=r.get("deductions", 0),
             penalties=r["penalties"],
             total_due=r["total_due"],
-            status=r["status"],
+            status=DeclarationStatus(r["status"]),
             notes=r["notes"],
             created_at=r["created_at"],
             updated_at=r["updated_at"],
@@ -24,7 +24,7 @@ class DeclarationRepository:
     def create(self, d: Declaration):
         conn = self._db.get_connection()
 
-        tax = (d.gross_amount - d.deductions) + d.penalties
+        tax = d.tax_amount + d.penalties
 
         cur = conn.execute("""
             INSERT INTO declarations (
@@ -35,9 +35,9 @@ class DeclarationRepository:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             d.taxpayer_id,
-            d.tax_type,
+            d.tax_rate,
             d.fiscal_year,
-            d.fiscal_period,
+            d.period,
             d.gross_amount,
             0,
             tax,
@@ -55,7 +55,7 @@ class DeclarationRepository:
     def update(self, d: Declaration):
         conn = self._db.get_connection()
 
-        tax = (d.gross_amount - d.deductions) + d.penalties
+        tax = d.tax_amount + d.penalties
 
         conn.execute("""
             UPDATE declarations SET
@@ -72,9 +72,9 @@ class DeclarationRepository:
             WHERE id=?
         """, (
             d.taxpayer_id,
-            d.tax_type,
+            d.tax_rate,
             d.fiscal_year,
-            d.fiscal_period,
+            d.period,
             d.gross_amount,
             d.penalties,
             tax,

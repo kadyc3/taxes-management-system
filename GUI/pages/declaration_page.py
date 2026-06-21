@@ -33,8 +33,8 @@ _COLUMNS = [
     ("ID",          "id",            50),
     ("Reference",   "reference",    170),
     ("Taxpayer",    "taxpayer_name", 200),
-    ("Tax Type",    "tax_type",       80),
-    ("Period",      "fiscal_period", 100),
+    ("Tax Type",    "tax_rate",       80),
+    ("Period",      "period", 100),
     ("Year",        "fiscal_year",    60),
     ("Total Due",   "total_due",     110),
     ("Status",      "status",         90),
@@ -150,13 +150,13 @@ class DeclarationPage(QWidget):
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
 
         # RBAC
-        user = self._auth.current_user
-        if user and not user.can_write():
-            self._add_btn.setVisible(False)
-        if user and not user.is_admin():
-            self._validate_btn.setVisible(False)
-            self._reject_btn.setVisible(False)
-            self._delete_btn.setVisible(False)
+        #user = self._auth.current_user
+        #if user and not user.can_write():
+         #   self._add_btn.setVisible(False)
+        #if user and not user.is_admin():
+         #   self._validate_btn.setVisible(False)
+          #  self._reject_btn.setVisible(False)
+           # self._delete_btn.setVisible(False)
 
     # ------------------------------------------------------------------
     # Data
@@ -174,13 +174,13 @@ class DeclarationPage(QWidget):
             self._table.insertRow(row_idx)
             values = [
                 str(decl.id),
-                decl.reference,
+                f"DEC-{decl.id}",
                 decl.taxpayer_name or str(decl.taxpayer_id),
-                decl.tax_type,
-                decl.fiscal_period,
+                decl.tax_rate,
+                decl.period,
                 str(decl.fiscal_year),
                 f"{decl.total_due:,.3f} TND",
-                decl.status_label(),
+                str(decl.status).capitalize(),
             ]
             for col_idx, val in enumerate(values):
                 item = QTableWidgetItem(val)
@@ -200,11 +200,17 @@ class DeclarationPage(QWidget):
         self._reject_btn.setEnabled(has and user.is_admin())
         self._delete_btn.setEnabled(has and user.can_delete())
 
+
     def _selected_id(self) -> int | None:
-        rows = self._table.selectedItems()
-        if not rows:
+        row = self._table.currentRow()
+        if row < 0:
             return None
-        return rows[0].data(Qt.ItemDataRole.UserRole)
+
+        item = self._table.item(row, 0)  # ID column
+        if not item:
+            return None
+
+        return int(item.text())
 
     # ------------------------------------------------------------------
     # Search
@@ -237,22 +243,27 @@ class DeclarationPage(QWidget):
     def _open_edit_dialog(self) -> None:
         decl_id = self._selected_id()
         if decl_id is None:
+            self._msg.show_error("No declaration selected.")
             return
+
         try:
             declaration = self._svc.get_by_id(decl_id)
-        except AppError as exc:
+        except Exception as exc:
             self._msg.show_error(str(exc))
             return
+
         taxpayers = self._tp_svc.get_all()
+
         dialog = DeclarationFormDialog(
             parent=self,
             service=self._svc,
             taxpayers=taxpayers,
             declaration=declaration,
         )
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.load_data()
-            self._msg.show_success("Declaration updated.")
+            self._msg.show_success("Declaration updated successfully.")
 
     def _submit_selected(self) -> None:
         decl_id = self._selected_id()
@@ -408,13 +419,12 @@ class DeclarationFormDialog(QDialog):
             if self._taxpayer_combo.itemData(i) == decl.taxpayer_id:
                 self._taxpayer_combo.setCurrentIndex(i)
                 break
-        idx = self._tax_type_combo.findText(decl.tax_type)
+        idx = self._tax_type_combo.findText(decl.tax_rate)
         if idx >= 0:
             self._tax_type_combo.setCurrentIndex(idx)
         self._fiscal_year_spin.setValue(decl.fiscal_year)
-        self._fiscal_period_input.setText(decl.fiscal_period)
+        self._fiscal_period_input.setText(decl.period)
         self._gross_spin.setValue(decl.gross_amount)
-        self._deductions_spin.setValue(decl.deductions)
         self._penalties_spin.setValue(decl.penalties)
         idx = self._status_combo.findText(decl.status)
         if idx >= 0:
@@ -432,16 +442,17 @@ class DeclarationFormDialog(QDialog):
     def _save(self) -> None:
         self._msg.hide()
         data = {
-            "taxpayer_id": self._taxpayer_combo.currentData(),
-            "tax_type": self._tax_type_combo.currentText(),
-            "fiscal_year": self._fiscal_year_spin.value(),
-            "fiscal_period": self._fiscal_period_input.text(),
-            "gross_amount": self._gross_spin.value(),
-            "deductions": self._deductions_spin.value(),
-            "penalties": self._penalties_spin.value(),
-            "status": self._status_combo.currentText(),
-            "notes": self._notes_input.toPlainText(),
-        }
+        "id": self._declaration.id if self._is_edit else None,
+        "taxpayer_id": self._taxpayer_combo.currentData(),
+        "declaration_type": self._tax_type_combo.currentText(),
+        "fiscal_year": self._fiscal_year_spin.value(),
+        "period": self._fiscal_period_input.text(),
+        "gross_amount": self._gross_spin.value(),
+        "tax_rate": self._gross_spin.value(),
+        "penalties": self._penalties_spin.value(),
+        "status": self._status_combo.currentText(),
+        "notes": self._notes_input.toPlainText(),
+    }
         try:
             if self._is_edit:
                 self._svc.update(self._declaration.id, data)

@@ -1,4 +1,5 @@
 """Declaration domain model."""
+
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -33,30 +34,38 @@ class Declaration:
     id: Optional[int] = None
     taxpayer_id: Optional[int] = None
     declaration_type: DeclarationType = DeclarationType.INCOME_TAX
+
     fiscal_year: int = datetime.now().year
-    period: Optional[str] = None          # e.g. "Q1", "Q2", "annual"
+    period: Optional[str] = None  # e.g. "Q1", "Q2", "annual"
+
     gross_amount: float = 0.0
     tax_rate: float = 0.0
     tax_amount: float = 0.0
     penalties: float = 0.0
     total_due: float = 0.0
+
     status: DeclarationStatus = DeclarationStatus.DRAFT
     notes: Optional[str] = None
+
     submitted_at: Optional[datetime] = None
     validated_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    # Joined field (not stored in declarations table)
-    taxpayer_name: Optional[str] = None
+    taxpayer_name: Optional[str] = None  # joined field
 
+    # -----------------------------
+    # BUSINESS LOGIC
+    # -----------------------------
     def calculate_tax(self) -> None:
-        """Recalculate tax_amount and total_due from gross_amount and tax_rate."""
-        if self.tax_rate == 0.0:
-            self.tax_rate = TAX_RATES.get(self.declaration_type, 0.0)
+        """Compute tax rate, tax amount, and total due."""
+        self.tax_rate = TAX_RATES.get(self.declaration_type, 0.0)
         self.tax_amount = round(self.gross_amount * self.tax_rate, 3)
         self.total_due = round(self.tax_amount + self.penalties, 3)
 
+    # -----------------------------
+    # SERIALIZATION
+    # -----------------------------
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -77,6 +86,9 @@ class Declaration:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
+    # -----------------------------
+    # DESERIALIZATION
+    # -----------------------------
     @classmethod
     def from_dict(cls, data: dict) -> "Declaration":
         def _dt(val):
@@ -85,19 +97,27 @@ class Declaration:
         return cls(
             id=data.get("id"),
             taxpayer_id=data.get("taxpayer_id"),
-            declaration_type=DeclarationType(data.get("declaration_type", "income_tax")),
+
+            declaration_type=DeclarationType(
+                data.get("declaration_type", "income_tax")
+            ),
+
             fiscal_year=data.get("fiscal_year", datetime.now().year),
             period=data.get("period"),
+
             gross_amount=float(data.get("gross_amount", 0)),
             tax_rate=float(data.get("tax_rate", 0)),
             tax_amount=float(data.get("tax_amount", 0)),
             penalties=float(data.get("penalties", 0)),
             total_due=float(data.get("total_due", 0)),
+
             status=DeclarationStatus(data.get("status", "draft")),
             notes=data.get("notes"),
+
             submitted_at=_dt(data.get("submitted_at")),
             validated_at=_dt(data.get("validated_at")),
             created_at=_dt(data.get("created_at")),
             updated_at=_dt(data.get("updated_at")),
+
             taxpayer_name=data.get("taxpayer_name"),
         )

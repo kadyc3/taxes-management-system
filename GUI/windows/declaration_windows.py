@@ -33,8 +33,8 @@ _COLUMNS = [
     ("ID",          "id",            50),
     ("Reference",   "reference",    170),
     ("Taxpayer",    "taxpayer_name", 200),
-    ("Tax Type",    "tax_type",       80),
-    ("Period",      "fiscal_period", 100),
+    ("Tax Type",    "tax_rate",       80),
+    ("Period",      "period", 100),
     ("Year",        "fiscal_year",    60),
     ("Total Due",   "total_due",     110),
     ("Status",      "status",         90),
@@ -176,11 +176,11 @@ class DeclarationWindow(QWidget):
                 str(decl.id),
                 decl.reference,
                 decl.taxpayer_name or str(decl.taxpayer_id),
-                decl.tax_type,
-                decl.fiscal_period,
+                decl.tax_rate,
+                decl.period,
                 str(decl.fiscal_year),
                 f"{decl.total_due:,.3f} TND",
-                decl.status_label(),
+                decl.status.value,
             ]
             for col_idx, val in enumerate(values):
                 item = QTableWidgetItem(val)
@@ -408,11 +408,12 @@ class DeclarationFormDialog(QDialog):
             if self._taxpayer_combo.itemData(i) == decl.taxpayer_id:
                 self._taxpayer_combo.setCurrentIndex(i)
                 break
-        idx = self._tax_type_combo.findText(decl.tax_type)
+        idx = self._tax_type_combo.findText(decl.tax_rate)
         if idx >= 0:
             self._tax_type_combo.setCurrentIndex(idx)
         self._fiscal_year_spin.setValue(decl.fiscal_year)
-        self._fiscal_period_input.setText(decl.fiscal_period)
+        self._fiscal_period_input.setText(decl.
+                                          period)
         self._gross_spin.setValue(decl.gross_amount)
         self._deductions_spin.setValue(decl.deductions)
         self._penalties_spin.setValue(decl.penalties)
@@ -433,9 +434,9 @@ class DeclarationFormDialog(QDialog):
         self._msg.hide()
         data = {
             "taxpayer_id": self._taxpayer_combo.currentData(),
-            "tax_type": self._tax_type_combo.currentText(),
+            "tax_rate": self._tax_type_combo.currentText(),
             "fiscal_year": self._fiscal_year_spin.value(),
-            "fiscal_period": self._fiscal_period_input.text(),
+            "period": self._fiscal_period_input.text(),
             "gross_amount": self._gross_spin.value(),
             "deductions": self._deductions_spin.value(),
             "penalties": self._penalties_spin.value(),

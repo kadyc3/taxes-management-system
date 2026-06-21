@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class Role(Enum):
-    ADMIN = "ADMIN"
-    AGENT = "AGENT"
-    VIEWER = "VIEWER"
+class Role(str, Enum):
+    ADMIN = "admin"
+    EDITOR = "editor"
+    USER = "user"

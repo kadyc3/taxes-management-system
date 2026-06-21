@@ -56,15 +56,15 @@ CREATE TABLE IF NOT EXISTS taxpayers (
 -- ------------------------------------------------------------
 -- TAX DECLARATIONS
 -- A declaration ties a taxpayer to a tax type and fiscal period.
--- tax_type:      TVA | IS | IRPPv | RS | TCL | TFP | FOPROLOS
+-- tax_rate:      TVA | IS | IRPPv | RS | TCL | TFP | FOPROLOS
 -- status:        draft | submitted | validated | rejected
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS declarations (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     reference           TEXT    NOT NULL UNIQUE,   -- Auto-generated reference
     taxpayer_id         INTEGER NOT NULL REFERENCES taxpayers(id) ON DELETE CASCADE,
-    tax_type            TEXT    NOT NULL
-                                CHECK (tax_type IN ('TVA', 'IS', 'IRPP', 'RS', 'TCL', 'TFP', 'FOPROLOS')),
+    tax_rate            TEXT    NOT NULL
+                                CHECK (tax_rate IN ('TVA', 'IS', 'IRPP', 'RS', 'TCL', 'TFP', 'FOPROLOS')),
     fiscal_year         INTEGER NOT NULL,
     fiscal_period       TEXT    NOT NULL,          -- e.g. "T1-2024", "M03-2024", "2024"
     gross_amount        REAL    NOT NULL DEFAULT 0.0,
@@ -105,7 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_taxpayers_name      ON taxpayers(name);
 CREATE INDEX IF NOT EXISTS idx_taxpayers_status    ON taxpayers(status);
 CREATE INDEX IF NOT EXISTS idx_declarations_taxpayer ON declarations(taxpayer_id);
 CREATE INDEX IF NOT EXISTS idx_declarations_status   ON declarations(status);
-CREATE INDEX IF NOT EXISTS idx_declarations_tax_type ON declarations(tax_type);
+CREATE INDEX IF NOT EXISTS idx_declarations_tax_type ON declarations(tax_rate);
 CREATE INDEX IF NOT EXISTS idx_declarations_year     ON declarations(fiscal_year);
 CREATE INDEX IF NOT EXISTS idx_audit_user            ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_entity          ON audit_log(entity, entity_id);

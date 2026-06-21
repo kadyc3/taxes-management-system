@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS declarations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     reference TEXT NOT NULL UNIQUE,
     taxpayer_id INTEGER NOT NULL,
-    tax_type TEXT NOT NULL,
+    tax_rate TEXT NOT NULL,
     fiscal_year INTEGER NOT NULL,
     fiscal_period TEXT NOT NULL,
     gross_amount REAL NOT NULL DEFAULT 0,

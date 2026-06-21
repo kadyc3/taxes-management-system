@@ -27,16 +27,22 @@ class AuthService:
             return None
 
         # Build User object from DB result
+       # Build User object from DB result
+        role_value = user_data[2].strip().lower()
+        role = Role(role_value)
+
         user = User(
             user_id=user_data[0],
             username=user_data[1],
-            role=Role(user_data[2].upper())
+            role=role
         )
 
         # Store session user (IMPORTANT FIX)
         self.current_user = user
+        
 
         return user
+        
 
     def logout(self):
         """
