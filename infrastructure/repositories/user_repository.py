@@ -10,11 +10,9 @@ class UserRepository:
         conn = self.db.get_connection()
         cursor = conn.cursor()
 
-        print("DEBUG LOGIN INPUT:", username, password)
 
         cursor.execute("SELECT id, username, role, password FROM users")
         users = cursor.fetchall()
-        print("ALL USERS:", users)
 
         cursor.execute("""
             SELECT id, username, role
@@ -25,6 +23,5 @@ class UserRepository:
 
         row = cursor.fetchone()
 
-        print("MATCH RESULT:", row)
-
+       
         return row
