@@ -52,7 +52,7 @@ class TaxpayerService:
             user_id=user_id,
             entity_type="taxpayer",
             entity_id=saved.id,
-            details=f"Created taxpayer '{saved.name}' ({saved.tax_id})",
+            details=f"Created taxpayer {saved.name}"
         )
         return saved
 

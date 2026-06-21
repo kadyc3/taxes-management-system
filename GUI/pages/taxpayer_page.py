@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton
 from Kernel.models.taxpayer import Taxpayer, TaxpayerType, TaxpayerStatus
 from PyQt6.QtWidgets import QLineEdit
+from datetime import datetime
 
 class TaxpayerPage(QWidget):
     def __init__(self, taxpayer_service):
@@ -37,17 +38,20 @@ class TaxpayerPage(QWidget):
 
         self.setLayout(layout)
 
-    
+        
     def _add_taxpayer(self):
+        import uuid
+
         new_taxpayer = Taxpayer(
-            tax_id="TEST13",
-            name="New User",
+            tax_id=f"TAX{str(uuid.uuid4())[:8].upper()}",
+            name=f"User {datetime.now().strftime('%H%M%S')}",
             taxpayer_type=TaxpayerType.PHYSICAL,
             status=TaxpayerStatus.ACTIVE,
             email="test@test.com",
             phone="123456",
             address="Tunis"
         )
+
         self.service.create(new_taxpayer)
         self.load_data()
 
@@ -102,11 +106,13 @@ class TaxpayerPage(QWidget):
     def load_data(self):
         taxpayers = self.service.get_all()
 
-        self.table.setRowCount(len(taxpayers))
+        self.table.clear()  # IMPORTANT
+        self.table.setRowCount(0)
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["ID", "Name", "Tax ID"])
 
         for i, t in enumerate(taxpayers):
+            self.table.insertRow(i)
             self.table.setItem(i, 0, QTableWidgetItem(str(t.id)))
             self.table.setItem(i, 1, QTableWidgetItem(t.name))
             self.table.setItem(i, 2, QTableWidgetItem(t.tax_id))

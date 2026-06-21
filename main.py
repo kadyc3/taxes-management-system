@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from infrastructure.migrations.schema import DatabaseInitializer
+from Infrastructure.migrations.schema import DatabaseInitializer
 
 # Services
 from Kernel.services.auth_service import AuthService
@@ -11,9 +11,9 @@ from Kernel.services.audit_service import AuditService
 from Kernel.services.taxpayer_service import TaxpayerService
 
 # Repositories
-from infrastructure.repositories.user_repository import UserRepository
-from infrastructure.repositories.taxpayer_repository import TaxpayerRepository
-from infrastructure.repositories.declaration_repository import DeclarationRepository
+from Infrastructure.repositories.user_repository import UserRepository
+from Infrastructure.repositories.taxpayer_repository import TaxpayerRepository
+from Infrastructure.repositories.declaration_repository import DeclarationRepository
 
 # UI
 from GUI.windows.login_window import LoginWindow
@@ -21,9 +21,9 @@ from GUI.windows.dashboard_window import DashboardWindow
 from GUI.pages.taxpayer_page import TaxpayerPage
 from GUI.pages.declaration_page import DeclarationPage
 
-from infrastructure.database.connection import DatabaseConnection
-from infrastructure.repositories.audit_repository import AuditRepository
-from infrastructure.migrations.schema import DatabaseInitializer
+from Infrastructure.database.connection import DatabaseConnection
+from Infrastructure.repositories.audit_repository import AuditRepository
+from Infrastructure.migrations.schema import DatabaseInitializer
 
 def main():
     print("🚀 Starting application...")
@@ -54,8 +54,12 @@ def main():
     # ==================================================
     # Services (BUSINESS LAYER)
     # ==================================================
-    auth_service = AuthService(user_repo)
+    
     audit_service = AuditService(audit_repo)
+    auth_service = AuthService(
+        user_repo,
+        audit_service
+    )
     taxpayer_service = TaxpayerService(taxpayer_repo, audit_service)
 
     taxpayer_service = TaxpayerService(

@@ -10,6 +10,12 @@ class TaxpayerRepository:
     def __init__(self, db: DatabaseConnection):
         self._db = db
 
+    @staticmethod
+    def _safe_enum(enum_class, value, default):
+        try:
+            return enum_class(value)
+        except Exception:
+            return default
     # ------------------------------------------------------------------ helpers
     def _row_to_taxpayer(self, row) -> Taxpayer:
         d = dict(row)
@@ -17,8 +23,16 @@ class TaxpayerRepository:
             id=d["id"],
             tax_id=d["tax_id"],
             name=d["name"],
-            taxpayer_type=TaxpayerType(d.get("taxpayer_type", "individual")),
-            status=TaxpayerStatus(d.get("status", "active")),
+            taxpayer_type=self._safe_enum(
+                TaxpayerType,
+                d.get("taxpayer_type"),
+                TaxpayerType.PHYSICAL
+            ),
+            status=self._safe_enum(
+            TaxpayerStatus,
+                d.get("status"),
+                TaxpayerStatus.ACTIVE
+            ),
             email=d.get("email"),
             phone=d.get("phone"),
             address=d.get("address"),

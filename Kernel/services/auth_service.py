@@ -1,5 +1,6 @@
 from Kernel.models.user import User
 from Kernel.models.role import Role
+from Kernel.models.audit_log import AuditAction
 
 
 class AuthService:
@@ -7,8 +8,9 @@ class AuthService:
     Handles authentication and stores the current session user.
     """
 
-    def __init__(self, user_repository):
+    def __init__(self, user_repository, audit_service):
         self.user_repository = user_repository
+        self.audit_service = audit_service
         self.current_user = None
 
     def login(self, username, password):
@@ -27,7 +29,6 @@ class AuthService:
             return None
 
         # Build User object from DB result
-       # Build User object from DB result
         role_value = user_data[2].strip().lower()
         role = Role(role_value)
 
@@ -37,17 +38,34 @@ class AuthService:
             role=role
         )
 
-        # Store session user (IMPORTANT FIX)
+        # Store session user
         self.current_user = user
-        
+
+        # Audit login
+        self.audit_service.log(
+            AuditAction.LOGIN,
+            user_id=user.id,
+            entity_type="user",
+            entity_id=user.id,
+            details=f"User {user.username} logged in"
+        )
 
         return user
-        
 
     def logout(self):
         """
         Clear current session.
         """
+
+        if self.current_user:
+            self.audit_service.log(
+                AuditAction.LOGOUT,
+                user_id=self.current_user.id,
+                entity_type="user",
+                entity_id=self.current_user.id,
+                details=f"User {self.current_user.username} logged out"
+            )
+
         self.current_user = None
 
     def is_authenticated(self):
