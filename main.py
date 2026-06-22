@@ -97,7 +97,6 @@ def main():
         nonlocal dashboard, login_window
 
         print(f"✅ Login successful: {user.username}")
-        print(taxpayer_service.get_all())
 
         dashboard = DashboardWindow(
             auth_service=auth_service,
