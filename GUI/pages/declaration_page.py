@@ -16,6 +16,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from openpyxl import Workbook
+from PyQt6.QtWidgets import QFileDialog
+
 from Kernel.models.declaration import Declaration
 from Kernel.services.declaration_service import DeclarationService
 from Kernel.services.taxpayer_service import TaxpayerService
@@ -85,12 +88,19 @@ class DeclarationPage(QWidget):
 
         self._msg = MessageBar()
         layout.addWidget(self._msg)
+        #excel
+        
+        self._export_btn = QPushButton("⬇ Export Excel")
+        self._export_btn.setObjectName("SecondaryButton")
+        self._export_btn.setMinimumHeight(34)
+        self._export_btn.clicked.connect(self._export_excel)
+        layout.addWidget(self._export_btn)
 
         # Search
         self._search = SearchBar("Search by reference, taxpayer name, tax type…")
         self._search.search_triggered.connect(self._on_search)
         layout.addWidget(self._search)
-
+        
         # Table
         self._table = QTableWidget()
         self._table.setColumnCount(len(_COLUMNS))
@@ -101,9 +111,11 @@ class DeclarationPage(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setMinimumHeight(300)
+
         for i, (_, _, width) in enumerate(_COLUMNS):
             self._table.setColumnWidth(i, width)
         layout.addWidget(self._table, stretch=1)
+        self._table.itemSelectionChanged.connect(self._on_selection_changed)
 
         # Action buttons
         action_row = QHBoxLayout()
@@ -147,7 +159,7 @@ class DeclarationPage(QWidget):
             action_row.addWidget(btn)
         layout.addLayout(action_row)
 
-        self._table.itemSelectionChanged.connect(self._on_selection_changed)
+        
 
         # RBAC
         #user = self._auth.current_user
@@ -240,6 +252,7 @@ class DeclarationPage(QWidget):
             self.load_data()
             self._msg.show_success("Declaration created successfully.")
 
+    
     def _open_edit_dialog(self) -> None:
         decl_id = self._selected_id()
         if decl_id is None:
@@ -313,6 +326,64 @@ class DeclarationPage(QWidget):
             self._msg.show_success("Declaration deleted.")
         except AppError as exc:
             self._msg.show_error(str(exc))
+    def _export_excel(self):
+        try:
+            declarations = self._svc.get_all()
+
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Declarations",
+                "declarations.xlsx",
+                "Excel Files (*.xlsx)"
+            )
+
+            if not path:
+                return
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Declarations"
+
+            # Header row
+            ws.append([
+                "ID",
+                "Reference",
+                "Taxpayer",
+                "Tax Type",
+                "Period",
+                "Year",
+                "Total Due",
+                "Status"
+            ])
+
+            # Data rows
+            for d in declarations:
+                ws.append([
+                    d.id,
+                    f"DEC-{d.id}",
+                    d.taxpayer_name,
+                    d.tax_rate,
+                    d.period,
+                    d.fiscal_year,
+                    float(d.total_due),
+                    d.status
+                ])
+
+            # Auto column sizing (simple but useful)
+            for col in ws.columns:
+                max_length = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                ws.column_dimensions[col_letter].width = max_length + 2
+
+            wb.save(path)
+
+            self._msg.show_success("Excel exported successfully!")
+
+        except Exception as e:
+            self._msg.show_error(f"Export failed: {str(e)}")
 
 
 # ======================================================================
