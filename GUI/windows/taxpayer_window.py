@@ -55,8 +55,8 @@ class TaxpayerWindow(QWidget):
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
 
         # --- Header ---
         header_row = QHBoxLayout()
@@ -72,6 +72,7 @@ class TaxpayerWindow(QWidget):
         header_row.addStretch()
 
         self._add_btn = QPushButton("＋  Add Taxpayer")
+        self._add_btn.setObjectName("PrimaryButton")
         self._add_btn.setMinimumHeight(36)
         self._add_btn.setFixedWidth(150)
         self._add_btn.clicked.connect(self._open_add_dialog)
@@ -94,6 +95,29 @@ class TaxpayerWindow(QWidget):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(False)
+        self._table.setStyleSheet("""
+        QTableWidget {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #E5E7EB;
+        }
+
+        QTableWidget::item {
+            padding: 8px;
+        }
+
+        QTableWidget::item:selected {
+            background-color: #DBEAFE;
+        }
+
+        QHeaderView::section {
+            background-color: #F3F4F6;
+            padding: 8px;
+            border: none;
+            font-weight: 600;
+        }
+        """)
         self._table.verticalHeader().setVisible(False)
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setMinimumHeight(300)
@@ -105,7 +129,7 @@ class TaxpayerWindow(QWidget):
 
         # --- Action buttons ---
         action_row = QHBoxLayout()
-        action_row.setSpacing(8)
+        action_row.setSpacing(10)
 
         self._edit_btn = QPushButton("✏  Edit")
         self._edit_btn.setObjectName("SecondaryButton")

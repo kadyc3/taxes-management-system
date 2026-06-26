@@ -60,8 +60,8 @@ class DeclarationWindow(QWidget):
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
 
         # Header
         header_row = QHBoxLayout()
@@ -98,6 +98,32 @@ class DeclarationWindow(QWidget):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(False)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setStyleSheet("""
+        QTableWidget {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #E5E7EB;
+            padding: 6px;
+        }
+
+        QTableWidget::item {
+            padding: 8px;
+        }
+
+        QTableWidget::item:selected {
+            background-color: #DBEAFE;
+            color: #111827;
+        }
+
+        QHeaderView::section {
+            background-color: #F3F4F6;
+            padding: 8px;
+            border: none;
+            font-weight: 600;
+        }
+        """)
         self._table.verticalHeader().setVisible(False)
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setMinimumHeight(300)
@@ -107,7 +133,7 @@ class DeclarationWindow(QWidget):
 
         # Action buttons
         action_row = QHBoxLayout()
-        action_row.setSpacing(8)
+        action_row.setSpacing(10)
 
         self._edit_btn = QPushButton("✏  Edit")
         self._edit_btn.setObjectName("SecondaryButton")
@@ -122,6 +148,7 @@ class DeclarationWindow(QWidget):
         self._submit_btn.clicked.connect(self._submit_selected)
 
         self._validate_btn = QPushButton("✔  Validate")
+        self._validate_btn.setObjectName("PrimaryButton")
         self._validate_btn.setMinimumHeight(34)
         self._validate_btn.setEnabled(False)
         self._validate_btn.clicked.connect(self._validate_selected)
@@ -146,6 +173,7 @@ class DeclarationWindow(QWidget):
         ):
             action_row.addWidget(btn)
         layout.addLayout(action_row)
+        layout.addSpacing(6)
 
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
 

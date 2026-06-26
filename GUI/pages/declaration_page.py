@@ -63,7 +63,7 @@ class DeclarationPage(QWidget):
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+    
         layout.setSpacing(16)
 
         # Header

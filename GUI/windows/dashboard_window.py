@@ -152,8 +152,8 @@ class DashboardWindow(QMainWindow):
         """Build the embedded dashboard summary page."""
         page = QWidget()
         outer = QVBoxLayout(page)
-        outer.setContentsMargins(28, 24, 28, 24)
-        outer.setSpacing(20)
+        outer.setContentsMargins(32, 28, 32, 28)
+        outer.setSpacing(22)
 
         # Header
         header_row = QHBoxLayout()
@@ -179,12 +179,12 @@ class DashboardWindow(QMainWindow):
         # Taxpayer cards row
         tp_section_label = QLabel("Taxpayers")
         tp_section_label.setStyleSheet(
-            "font-weight: bold; font-size: 10pt; color: #0F3460; margin-top: 4px;"
+            "font-size: 11pt; font-weight: 600; color: #111827; margin-top: 10px;"
         )
         outer.addWidget(tp_section_label)
 
         tp_row = QHBoxLayout()
-        tp_row.setSpacing(14)
+        tp_row.setSpacing(16)
         self._card_tp_total = StatCard("Total Taxpayers", "—", "", "#0F3460")
         self._card_tp_active = StatCard("Active", "—", "", "#1A6B3C")
         self._card_tp_suspended = StatCard("Suspended", "—", "", "#C0392B")
@@ -201,12 +201,12 @@ class DashboardWindow(QMainWindow):
         # Declaration cards row
         decl_section_label = QLabel("Declarations")
         decl_section_label.setStyleSheet(
-            "font-weight: bold; font-size: 10pt; color: #0F3460; margin-top: 8px;"
+            "font-size: 11pt; font-weight: 600; color: #111827; margin-top: 10px;"
         )
         outer.addWidget(decl_section_label)
 
         decl_row = QHBoxLayout()
-        decl_row.setSpacing(14)
+        decl_row.setSpacing(16)
         self._card_decl_total = StatCard("Total Declarations", "—", "", "#0F3460")
         self._card_decl_draft = StatCard("Draft", "—", "", "#856404")
         self._card_decl_submitted = StatCard("Submitted", "—", "", "#0C5460")
@@ -228,7 +228,8 @@ class DashboardWindow(QMainWindow):
             "Total Amount Due (TND)", "—", "Across all declarations", "#8B0000"
         )
         self._card_total_due.setMinimumHeight(90)
-        due_row.addWidget(self._card_total_due)
+        self._card_total_due.setMinimumWidth(320)
+        due_row.addWidget(self._card_total_due, alignment=Qt.AlignmentFlag.AlignLeft)
         due_row.addStretch()
         outer.addLayout(due_row)
 
@@ -247,7 +248,7 @@ class DashboardWindow(QMainWindow):
         self._activity_container = QWidget()
         self._activity_layout = QVBoxLayout(self._activity_container)
         self._activity_layout.setContentsMargins(12, 8, 12, 8)
-        self._activity_layout.setSpacing(4)
+        self._activity_layout.setSpacing(8)
         scroll.setWidget(self._activity_container)
         outer.addWidget(scroll)
 
@@ -299,12 +300,22 @@ class DashboardWindow(QMainWindow):
         for log in summary["recent_activity"]:
             text = f"[{log.created_at.strftime('%Y-%m-%d %H:%M')}]  {log.action} {log.entity_type} #{log.entity_id} {log.details or ''}"
             lbl = QLabel(text)
-            lbl.setStyleSheet("font-size: 8pt; color: #555;")
+            lbl.setStyleSheet("""
+                font-size: 9pt;
+                color: #374151;
+                padding: 6px;
+                background: #F9FAFB;
+                border-radius: 6px;
+            """)
             self._activity_layout.addWidget(lbl)
 
         if not summary["recent_activity"]:
             empty = QLabel("No activity recorded yet.")
-            empty.setStyleSheet("font-size: 8pt; color: #AAA;")
+            empty.setStyleSheet("""
+                font-size: 9pt;
+                color: #9CA3AF;
+                padding: 8px;
+            """)
             self._activity_layout.addWidget(empty)
 
     # ------------------------------------------------------------------

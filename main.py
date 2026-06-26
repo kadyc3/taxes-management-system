@@ -20,6 +20,7 @@ from GUI.windows.login_window import LoginWindow
 from GUI.windows.dashboard_window import DashboardWindow
 from GUI.pages.taxpayer_page import TaxpayerPage
 from GUI.pages.declaration_page import DeclarationPage
+from GUI.theme.app_theme import APP_STYLESHEET
 
 from Infrastructure.database.connection import DatabaseConnection
 from Infrastructure.repositories.audit_repository import AuditRepository
@@ -29,6 +30,7 @@ def main():
     print("🚀 Starting application...")
 
     app = QApplication(sys.argv)
+    app.setStyleSheet(APP_STYLESHEET)
      # =========================
     # DATABASE INITIALIZATION
     # =========================
