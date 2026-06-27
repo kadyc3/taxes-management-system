@@ -247,7 +247,9 @@ class DeclarationPage(QWidget):
             
             due_item = QTableWidgetItem(f"$ {d.total_due:,.2f}")
             due_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            due_item.setStyleSheet("font-weight: bold;")
+            due_item_font = due_item.font()
+            due_item_font.setBold(True)
+            due_item.setFont(due_item_font)
             
             # Status items with status colors
             status_item = QTableWidgetItem(d.status.value)

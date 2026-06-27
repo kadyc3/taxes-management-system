@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QHeaderView, QFrame
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QHeaderView, QFrame, QDialog
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from ..widgets.search_bar import SearchBar
