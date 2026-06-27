@@ -182,6 +182,29 @@ class DeclarationPage(QWidget):
                 return
 
         self._table.setRowCount(0)
+
+        for row_idx, decl in enumerate(declarations):
+            self._table.insertRow(row_idx)
+
+            values = [
+                str(decl.id),
+                f"DEC-{decl.id}",
+                decl.taxpayer_name or str(decl.taxpayer_id),
+                str(decl.tax_rate),
+                str(decl.period),
+                str(decl.fiscal_year),
+                f"{decl.total_due:,.3f} TND",
+                str(decl.status).capitalize(),
+            ]
+
+            for col_idx, val in enumerate(values):
+                item = QTableWidgetItem(val)
+                item.setData(Qt.ItemDataRole.UserRole, decl.id)
+                self._table.setItem(row_idx, col_idx, item)
+
+        self._table.resizeRowsToContents()
+
+        self._table.setRowCount(0)
         for row_idx, decl in enumerate(declarations):
             self._table.insertRow(row_idx)
             values = [
@@ -384,8 +407,18 @@ class DeclarationPage(QWidget):
 
         except Exception as e:
             self._msg.show_error(f"Export failed: {str(e)}")
+    def _fill_table(self, taxpayers):
+        self.table.setRowCount(0)
 
+        for i, t in enumerate(taxpayers):
+            self.table.insertRow(i)
 
+            self.table.setItem(i, 0, QTableWidgetItem(str(t.id)))
+            self.table.setItem(i, 1, QTableWidgetItem(t.name))
+            self.table.setItem(i, 2, QTableWidgetItem(t.tax_id))
+            self.table.setItem(i, 3, QTableWidgetItem(t.email or "—"))
+            self.table.setItem(i, 4, QTableWidgetItem(t.phone or "—"))
+            self.table.setItem(i, 5, QTableWidgetItem(t.address or "—"))
 # ======================================================================
 # Declaration Form Dialog
 # ======================================================================
@@ -436,22 +469,34 @@ class DeclarationFormDialog(QDialog):
         self._fiscal_period_input = QLineEdit()
         self._fiscal_period_input.setPlaceholderText("e.g. T1-2024, M03-2024, 2024")
 
+        # GROSS
         self._gross_spin = QDoubleSpinBox()
         self._gross_spin.setRange(0, 999_999_999)
         self._gross_spin.setDecimals(3)
         self._gross_spin.setSuffix(" TND")
+        self._gross_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
+        self._gross_spin.setMinimumHeight(30)
+        self._gross_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._gross_spin.valueChanged.connect(self._recompute)
 
+        # DEDUCTIONS
         self._deductions_spin = QDoubleSpinBox()
         self._deductions_spin.setRange(0, 999_999_999)
         self._deductions_spin.setDecimals(3)
         self._deductions_spin.setSuffix(" TND")
+        self._deductions_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
+        self._deductions_spin.setMinimumHeight(30)
+        self._deductions_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._deductions_spin.valueChanged.connect(self._recompute)
 
+        # PENALTIES
         self._penalties_spin = QDoubleSpinBox()
         self._penalties_spin.setRange(0, 999_999_999)
         self._penalties_spin.setDecimals(3)
         self._penalties_spin.setSuffix(" TND")
+        self._penalties_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
+        self._penalties_spin.setMinimumHeight(30)
+        self._penalties_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._penalties_spin.valueChanged.connect(self._recompute)
 
         self._total_due_label = QLabel("0.000 TND")

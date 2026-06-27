@@ -1,58 +1,43 @@
-"""SQLite connection manager (singleton)."""
-
 import sqlite3
-import threading
+from pathlib import Path
 from typing import Optional
 
 
 class DatabaseConnection:
+    """Manages the SQLite connection."""
+
     _instance: Optional["DatabaseConnection"] = None
-    _lock = threading.Lock()
+    _db_path: Path = Path("taxadmin.db")
 
-
-    def __init__(self, db_path: str = "taxes.db"):
-        self._db_path = db_path
-        self._local = threading.local()
+    def __init__(self, db_path: Optional[Path] = None) -> None:
+        if db_path:
+            self._db_path = db_path
+        self._connection: Optional[sqlite3.Connection] = None
 
     @classmethod
-    def get_instance(cls, db_path: str = "taxes.db") -> "DatabaseConnection":
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls(db_path)
+    def get_instance(cls) -> "DatabaseConnection":
+        if cls._instance is None:
+            cls._instance = DatabaseConnection()
         return cls._instance
 
-    def get_connection(self) -> sqlite3.Connection:
-        conn = getattr(self._local, "conn", None)
+    def connect(self) -> sqlite3.Connection:
+        if self._connection is None:
+            self._connection = sqlite3.connect(
+                str(self._db_path),
+                check_same_thread=False,
+            )
+            self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA foreign_keys = ON")
+            self._connection.execute("PRAGMA journal_mode = WAL")
+        return self._connection
 
-        # If no connection exists → create one
-        if conn is None:
-            conn = self._create_connection()
-            self._local.conn = conn
-            return conn
+    def close(self) -> None:
+        if self._connection:
+            self._connection.close()
+            self._connection = None
 
-        # If connection exists but is broken → recreate
-        try:
-            conn.execute("SELECT 1")
-        except sqlite3.ProgrammingError:
-            conn = self._create_connection()
-            self._local.conn = conn
+    def __enter__(self) -> sqlite3.Connection:
+        return self.connect()
 
-        return conn
-
-    def _create_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(
-            self._db_path,
-            check_same_thread=False,
-            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
-        )
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        return conn
-
-    def close(self):
-        conn = getattr(self._local, "conn", None)
-        if conn:
-            conn.close()
-            self._local.conn = None
-    
+    def __exit__(self, *_) -> None:
+        pass

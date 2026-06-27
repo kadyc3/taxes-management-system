@@ -1,110 +1,90 @@
-"""Business logic for taxpayer management."""
-import re
+import uuid
+from datetime import date
 from typing import List, Optional
 
 from Infrastructure.repositories.taxpayer_repository import TaxpayerRepository
-from Kernel.models.taxpayer import Taxpayer, TaxpayerStatus, TaxpayerType
-from Kernel.models.audit_log import AuditAction
-from Kernel.exceptions.exceptions import ValidationError, NotFoundError, DuplicateError
-from Kernel.services.audit_service import AuditService
-from Kernel.models.taxpayer import Taxpayer, TaxpayerType, TaxpayerStatus
+from Infrastructure.repositories.audit_repository import AuditRepository
+from Kernel.models.taxpayer import Taxpayer, TaxpayerStatus
+from Kernel.models.audit_log import AuditLog, AuditSeverity
 
 
 class TaxpayerService:
-    def __init__(self, taxpayer_repo: TaxpayerRepository, audit_service: AuditService):
+    def __init__(
+        self,
+        taxpayer_repo: TaxpayerRepository,
+        audit_repo: AuditRepository,
+    ) -> None:
         self._repo = taxpayer_repo
-        self._audit = audit_service
-    # ---------------------------------------------------------------- validation
-    def _validate(self, taxpayer: Taxpayer, is_update: bool = False) -> None:
-        errors = []
-        if not taxpayer.tax_id or not taxpayer.tax_id.strip():
-            errors.append("Tax ID is required.")
-        elif not re.match(r"^[A-Za-z0-9\-]{4,20}$", taxpayer.tax_id.strip()):
-            errors.append("Tax ID must be 4–20 alphanumeric characters.")
+        self._audit = audit_repo
 
-        if not taxpayer.name or not taxpayer.name.strip():
-            errors.append("Name is required.")
-        elif len(taxpayer.name.strip()) < 2:
-            errors.append("Name must be at least 2 characters.")
+    def list_taxpayers(
+        self,
+        query: str = "",
+        status: str = "all",
+        taxpayer_type: str = "all",
+    ) -> List[Taxpayer]:
+        return self._repo.search(query, status, taxpayer_type)
 
-        if taxpayer.email and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", taxpayer.email):
-            errors.append("Invalid email address.")
+    def get_taxpayer(self, taxpayer_id: str) -> Optional[Taxpayer]:
+        return self._repo.get_by_id(taxpayer_id)
 
-        if taxpayer.phone and not re.match(r"^[\d\+\-\s\(\)]{6,20}$", taxpayer.phone):
-            errors.append("Invalid phone number.")
-
-        if errors:
-            raise ValidationError("\n".join(errors))
-
-        # Uniqueness check
-        existing = self._repo.find_by_tax_id(taxpayer.tax_id.strip())
-        if existing and (not is_update or existing.id != taxpayer.id):
-            raise DuplicateError(f"Tax ID '{taxpayer.tax_id}' is already registered.")
-
-    # ---------------------------------------------------------------- CRUD
-    def create(self, taxpayer: Taxpayer, user_id: Optional[int] = None) -> Taxpayer:
-        taxpayer.tax_id = taxpayer.tax_id.strip().upper()
-        taxpayer.name = taxpayer.name.strip()
-        self._validate(taxpayer)
-        saved = self._repo.create(taxpayer)
-        self._audit.log(
-            AuditAction.CREATE_TAXPAYER,
-            user_id=user_id,
-            entity_type="taxpayer",
-            entity_id=saved.id,
-            details=f"Created taxpayer {saved.name}"
+    def create_taxpayer(self, taxpayer: Taxpayer, created_by: str = "admin") -> Taxpayer:
+        if not taxpayer.id:
+            all_ids = [t.id for t in self._repo.get_all()]
+            nums = [int(i.replace("TP-", "")) for i in all_ids if i.startswith("TP-")]
+            next_num = max(nums, default=10000) + 1
+            taxpayer.id = f"TP-{next_num}"
+        self._repo.create(taxpayer)
+        self._log(
+            user=created_by,
+            action="Create",
+            entity="Taxpayer",
+            description=f"New taxpayer {taxpayer.name!r} added",
+            severity=AuditSeverity.SUCCESS,
         )
-        return saved
+        return taxpayer
 
-    def update(self, taxpayer: Taxpayer, user_id: Optional[int] = None) -> Taxpayer:
-        if not self._repo.find_by_id(taxpayer.id):
-            raise NotFoundError(f"Taxpayer #{taxpayer.id} not found.")
-        taxpayer.tax_id = taxpayer.tax_id.strip().upper()
-        taxpayer.name = taxpayer.name.strip()
-        self._validate(taxpayer, is_update=True)
-        saved = self._repo.update(taxpayer)
-        self._audit.log(
-            AuditAction.UPDATE_TAXPAYER,
-            user_id=user_id,
-            entity_type="taxpayer",
-            entity_id=saved.id,
-            details=f"Updated taxpayer '{saved.name}' ({saved.tax_id})",
+    def update_taxpayer(self, taxpayer: Taxpayer, updated_by: str = "admin") -> None:
+        self._repo.update(taxpayer)
+        self._log(
+            user=updated_by,
+            action="Update",
+            entity="Taxpayer",
+            description=f"Taxpayer {taxpayer.id} updated",
+            severity=AuditSeverity.INFO,
         )
-        return saved
 
-    def delete(self, taxpayer_id: int, user_id: Optional[int] = None) -> None:
-        taxpayer = self._repo.find_by_id(taxpayer_id)
-        if not taxpayer:
-            raise NotFoundError(f"Taxpayer #{taxpayer_id} not found.")
+    def delete_taxpayer(self, taxpayer_id: str, deleted_by: str = "admin") -> None:
+        taxpayer = self._repo.get_by_id(taxpayer_id)
+        name = taxpayer.name if taxpayer else taxpayer_id
         self._repo.delete(taxpayer_id)
-        self._audit.log(
-            AuditAction.DELETE_TAXPAYER,
-            user_id=user_id,
-            entity_type="taxpayer",
-            entity_id=taxpayer_id,
-            details=f"Deleted taxpayer '{taxpayer.name}' ({taxpayer.tax_id})",
+        self._log(
+            user=deleted_by,
+            action="Delete",
+            entity="Taxpayer",
+            description=f"Taxpayer {taxpayer_id} ({name}) deleted",
+            severity=AuditSeverity.WARNING,
         )
 
-    def get_by_id(self, taxpayer_id: int) -> Taxpayer:
-        t = self._repo.find_by_id(taxpayer_id)
-        if not t:
-            raise NotFoundError(f"Taxpayer #{taxpayer_id} not found.")
-        return t
+    def count_by_status(self) -> dict:
+        return self._repo.count_by_status()
 
-    def get_all(self) -> List[Taxpayer]:
-        return self._repo.find_all()
-
-    def search(self, query: str) -> List[Taxpayer]:
-        if not query or not query.strip():
-            return self.get_all()
-        return self._repo.search(query.strip())
-
-    def get_stats(self) -> dict:
-        counts = self._repo.count_by_status()
-        total = self._repo.count_total()
-        return {
-            "total": total,
-            "active": counts.get("active", 0),
-            "suspended": counts.get("suspended", 0),
-            "deregistered": counts.get("deregistered", 0),
-        }
+    def _log(
+        self,
+        user: str,
+        action: str,
+        entity: str,
+        description: str,
+        severity: AuditSeverity,
+    ) -> None:
+        from datetime import datetime
+        log = AuditLog(
+            id=f"LOG-{uuid.uuid4().hex[:6].upper()}",
+            date=datetime.now().strftime("%Y-%m-%d %H:%M"),
+            user=user,
+            action=action,
+            entity=entity,
+            description=description,
+            severity=severity,
+        )
+        self._audit.create(log)

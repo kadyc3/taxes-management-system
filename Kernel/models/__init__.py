@@ -1,9 +1,9 @@
 from .taxpayer import Taxpayer, TaxpayerStatus, TaxpayerType
-from .declaration import Declaration, DeclarationStatus, DeclarationType, TAX_RATES
-from .audit_log import AuditLog, AuditAction
+from .declaration import Declaration, DeclarationStatus, DeclarationType
+from .audit_log import AuditLog, AuditSeverity
 
 __all__ = [
     "Taxpayer", "TaxpayerStatus", "TaxpayerType",
-    "Declaration", "DeclarationStatus", "DeclarationType", "TAX_RATES",
-    "AuditLog", "AuditAction",
+    "Declaration", "DeclarationStatus", "DeclarationType",
+    "AuditLog", "AuditSeverity",
 ]

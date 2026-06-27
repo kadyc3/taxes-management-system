@@ -1,61 +1,52 @@
-"""Repository for audit log persistence."""
-from datetime import datetime
-from typing import List, Optional
-
+from typing import List
 from Infrastructure.database.connection import DatabaseConnection
-from Kernel.models.audit_log import AuditLog, AuditAction
+from Kernel.models.audit_log import AuditLog, AuditSeverity
 
 
 class AuditRepository:
-    def __init__(self, db: DatabaseConnection):
-        self._db = db
+    def __init__(self) -> None:
+        self._db = DatabaseConnection.get_instance()
 
     def _row_to_log(self, row) -> AuditLog:
-        d = dict(row)
         return AuditLog(
-            id=d["id"],
-            user_id=d.get("user_id"),
-            action=AuditAction(d["action"]) if d.get("action") else None,
-            entity_type=d.get("entity_type"),
-            entity_id=d.get("entity_id"),
-            details=d.get("details"),
-            ip_address=d.get("ip_address"),
-            created_at=datetime.fromisoformat(d["created_at"]) if d.get("created_at") else None,
+            id=row["id"],
+            date=row["date"],
+            user=row["user"],
+            action=row["action"],
+            entity=row["entity"],
+            description=row["description"],
+            severity=AuditSeverity(row["severity"]),
         )
 
-    def create(self, log: AuditLog) -> AuditLog:
-        now = datetime.now().isoformat()
-        conn = self._db.get_connection()
-        cur = conn.execute(
-            """INSERT INTO audit_log
-               (user_id, action, entity_type, entity_id, details, ip_address, created_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (
-                log.user_id,
-                log.action.value if log.action else None,
-                log.entity_type,
-                log.entity_id,
-                log.details,
-                log.ip_address,
-                now,
-            ),
+    def get_all(self) -> List[AuditLog]:
+        conn = self._db.connect()
+        rows = conn.execute(
+            "SELECT * FROM audit_logs ORDER BY date DESC"
+        ).fetchall()
+        return [self._row_to_log(r) for r in rows]
+
+    def search(self, query: str = "", severity: str = "all") -> List[AuditLog]:
+        conn = self._db.connect()
+        sql = "SELECT * FROM audit_logs WHERE 1=1"
+        params: list = []
+        if query:
+            sql += " AND (user LIKE ? OR action LIKE ? OR entity LIKE ? OR description LIKE ?)"
+            like = f"%{query}%"
+            params += [like, like, like, like]
+        if severity != "all":
+            sql += " AND severity = ?"
+            params.append(severity)
+        sql += " ORDER BY date DESC"
+        rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_log(r) for r in rows]
+
+    def create(self, log: AuditLog) -> None:
+        conn = self._db.connect()
+        conn.execute(
+            """INSERT INTO audit_logs
+               (id, date, user, action, entity, description, severity)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (log.id, log.date, log.user, log.action,
+             log.entity, log.description, log.severity.value),
         )
         conn.commit()
-        log.id = cur.lastrowid
-        log.created_at = datetime.fromisoformat(now)
-        return log
-
-    def find_recent(self, limit: int = 20) -> List[AuditLog]:
-        conn = self._db.get_connection()
-        rows = conn.execute(
-            "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [self._row_to_log(r) for r in rows]
-
-    def find_by_user(self, user_id: int, limit: int = 50) -> List[AuditLog]:
-        conn = self._db.get_connection()
-        rows = conn.execute(
-            "SELECT * FROM audit_log WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
-            (user_id, limit),
-        ).fetchall()
-        return [self._row_to_log(r) for r in rows]
