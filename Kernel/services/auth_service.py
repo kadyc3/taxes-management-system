@@ -1,75 +1,86 @@
-from Kernel.models.user import User
-from Kernel.models.role import Role
-from Kernel.models.audit_log import AuditAction
-
+import hashlib
+from datetime import datetime
+from typing import Optional
+from ..models.user import User, UserRole
+from ..exceptions.app_exceptions import AuthenticationError
 
 class AuthService:
-    """
-    Handles authentication and stores the current session user.
-    """
+    def __init__(self, user_repo, audit_repo):
+        self.user_repo = user_repo
+        self.audit_repo = audit_repo
+        self.current_user: Optional[User] = None
 
-    def __init__(self, user_repository, audit_service):
-        self.user_repository = user_repository
-        self.audit_service = audit_service
-        self.current_user = None
+    def login(self, username: str, password: str) -> User:
+        user_dict = self.user_repo.get_by_username(username)
+        if not user_dict:
+            self.audit_repo.log(
+                username, 
+                "failed_login", 
+                "user", 
+                None, 
+                f"Login failed: user '{username}' not found"
+            )
+            raise AuthenticationError("Invalid username or password.")
 
-    def login(self, username, password):
-        """
-        Authenticate user and set current_user if successful.
-        """
+        salt_bytes = bytes.fromhex(user_dict["salt"])
+        stored_hash = user_dict["password"]
+        
+        input_hash = hashlib.pbkdf2_hmac(
+            'sha256',
+            password.encode('utf-8'),
+            salt_bytes,
+            100000
+        ).hex()
 
-        user_data = self.user_repository.find_by_credentials(
-            username,
-            password
+        if input_hash != stored_hash:
+            self.audit_repo.log(
+                username, 
+                "failed_login", 
+                "user", 
+                user_dict["id"], 
+                f"Login failed: incorrect password for user '{username}'"
+            )
+            raise AuthenticationError("Invalid username or password.")
+
+        role = UserRole.from_str(user_dict["role"])
+        # Handle potential fractional seconds or simplified ISO format
+        created_at_str = user_dict["created_at"]
+        try:
+            created_at_dt = datetime.fromisoformat(created_at_str)
+        except ValueError:
+            created_at_dt = datetime.now()
+
+        self.current_user = User(
+            id=user_dict["id"],
+            username=user_dict["username"],
+            role=role,
+            created_at=created_at_dt
         )
-
-        # If credentials are wrong
-        if user_data is None:
-            self.current_user = None
-            return None
-
-        # Build User object from DB result
-        role_value = user_data[2].strip().lower()
-        role = Role(role_value)
-
-        user = User(
-            user_id=user_data[0],
-            username=user_data[1],
-            role=role
+        
+        self.audit_repo.log(
+            self.current_user.username, 
+            "login", 
+            "user", 
+            self.current_user.id, 
+            f"User logged in successfully (Role: {role.value})"
         )
-
-        # Store session user
-        self.current_user = user
-
-        # Audit login
-        self.audit_service.log(
-            AuditAction.LOGIN,
-            user_id=user.id,
-            entity_type="user",
-            entity_id=user.id,
-            details=f"User {user.username} logged in"
-        )
-
-        return user
+        return self.current_user
 
     def logout(self):
-        """
-        Clear current session.
-        """
-
         if self.current_user:
-            self.audit_service.log(
-                AuditAction.LOGOUT,
-                user_id=self.current_user.id,
-                entity_type="user",
-                entity_id=self.current_user.id,
-                details=f"User {self.current_user.username} logged out"
+            username = self.current_user.username
+            uid = self.current_user.id
+            self.current_user = None
+            self.audit_repo.log(
+                username, 
+                "logout", 
+                "user", 
+                uid, 
+                "User logged out successfully"
             )
 
-        self.current_user = None
-
-    def is_authenticated(self):
-        """
-        Check if a user is logged in.
-        """
+    def is_authenticated(self) -> bool:
         return self.current_user is not None
+
+    def get_current_user(self) -> Optional[User]:
+        return self.current_user

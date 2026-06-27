@@ -1,110 +1,212 @@
-from typing import List, Optional
-from Infrastructure.database.connection import DatabaseConnection
-from Kernel.models.declaration import Declaration, DeclarationStatus, DeclarationType
-
+import sqlite3
+from typing import Optional, Dict, Any, List
+from ..database.connection import DatabaseConnection
 
 class DeclarationRepository:
-    def __init__(self) -> None:
-        self._db = DatabaseConnection.get_instance()
+    def __init__(self):
+        pass
 
-    def _row_to_declaration(self, row) -> Declaration:
-        return Declaration(
-            number=row["number"],
-            taxpayer=row["taxpayer"],
-            amount=row["amount"],
-            status=DeclarationStatus(row["status"]),
-            date=row["date"],
-            declaration_type=DeclarationType(row["declaration_type"]),
-            notes=row["notes"] or "",
-        )
+    def get_by_id(self, declaration_id: int) -> Optional[Dict[str, Any]]:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT d.id, d.taxpayer_id, d.reference_number, d.declaration_type, d.fiscal_year, d.period,
+                       d.gross_amount, d.deductions, d.penalties, d.total_due, d.status, d.filed_date, d.rejection_reason,
+                       t.full_name as taxpayer_name
+                FROM declarations d
+                JOIN taxpayers t ON d.taxpayer_id = t.id
+                WHERE d.id = ?
+                """,
+                (declaration_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+        finally:
+            conn.close()
 
-    def get_all(self) -> List[Declaration]:
-        conn = self._db.connect()
-        rows = conn.execute(
-            "SELECT * FROM declarations ORDER BY date DESC"
-        ).fetchall()
-        return [self._row_to_declaration(r) for r in rows]
+    def get_by_reference_number(self, reference_number: str) -> Optional[Dict[str, Any]]:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT d.id, d.taxpayer_id, d.reference_number, d.declaration_type, d.fiscal_year, d.period,
+                       d.gross_amount, d.deductions, d.penalties, d.total_due, d.status, d.filed_date, d.rejection_reason,
+                       t.full_name as taxpayer_name
+                FROM declarations d
+                JOIN taxpayers t ON d.taxpayer_id = t.id
+                WHERE d.reference_number = ?
+                """,
+                (reference_number,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+        finally:
+            conn.close()
 
-    def search(
-        self,
-        query: str = "",
-        status: Optional[str] = None,
-        declaration_type: Optional[str] = None,
-    ) -> List[Declaration]:
-        conn = self._db.connect()
-        sql = "SELECT * FROM declarations WHERE 1=1"
-        params: list = []
-        if query:
-            sql += " AND (number LIKE ? OR taxpayer LIKE ?)"
-            like = f"%{query}%"
-            params += [like, like]
-        if status and status != "all":
-            sql += " AND status = ?"
-            params.append(status)
-        if declaration_type and declaration_type != "all":
-            sql += " AND declaration_type = ?"
-            params.append(declaration_type)
-        sql += " ORDER BY date DESC"
-        rows = conn.execute(sql, params).fetchall()
-        return [self._row_to_declaration(r) for r in rows]
+    def create(self, data: Dict[str, Any]) -> int:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO declarations (taxpayer_id, reference_number, declaration_type, fiscal_year, period,
+                                         gross_amount, deductions, penalties, total_due, status, filed_date, rejection_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    data["taxpayer_id"],
+                    data["reference_number"],
+                    data["declaration_type"],
+                    data["fiscal_year"],
+                    data["period"],
+                    data["gross_amount"],
+                    data["deductions"],
+                    data["penalties"],
+                    data["total_due"],
+                    data["status"],
+                    data["filed_date"],
+                    data.get("rejection_reason")
+                )
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.Error as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
 
-    def create(self, declaration: Declaration) -> None:
-        conn = self._db.connect()
-        conn.execute(
-            """INSERT INTO declarations
-               (number, taxpayer, amount, status, date, declaration_type, notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                declaration.number, declaration.taxpayer, declaration.amount,
-                declaration.status.value, declaration.date,
-                declaration.declaration_type.value, declaration.notes,
-            ),
-        )
-        conn.commit()
+    def update(self, declaration_id: int, data: Dict[str, Any]) -> bool:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE declarations
+                SET taxpayer_id = ?, reference_number = ?, declaration_type = ?, fiscal_year = ?, period = ?,
+                    gross_amount = ?, deductions = ?, penalties = ?, total_due = ?, status = ?, rejection_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    data["taxpayer_id"],
+                    data["reference_number"],
+                    data["declaration_type"],
+                    data["fiscal_year"],
+                    data["period"],
+                    data["gross_amount"],
+                    data["deductions"],
+                    data["penalties"],
+                    data["total_due"],
+                    data["status"],
+                    data.get("rejection_reason"),
+                    declaration_id
+                )
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
 
-    def update(self, declaration: Declaration) -> None:
-        conn = self._db.connect()
-        conn.execute(
-            """UPDATE declarations SET
-               taxpayer=?, amount=?, status=?, date=?, declaration_type=?, notes=?
-               WHERE number=?""",
-            (
-                declaration.taxpayer, declaration.amount, declaration.status.value,
-                declaration.date, declaration.declaration_type.value,
-                declaration.notes, declaration.number,
-            ),
-        )
-        conn.commit()
+    def delete(self, declaration_id: int) -> bool:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM declarations WHERE id = ?", (declaration_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
 
-    def delete(self, number: str) -> None:
-        conn = self._db.connect()
-        conn.execute("DELETE FROM declarations WHERE number = ?", (number,))
-        conn.commit()
+    def search(self, query: str = "", status_filter: Optional[str] = None, taxpayer_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            sql = """
+                SELECT d.id, d.taxpayer_id, d.reference_number, d.declaration_type, d.fiscal_year, d.period,
+                       d.gross_amount, d.deductions, d.penalties, d.total_due, d.status, d.filed_date, d.rejection_reason,
+                       t.full_name as taxpayer_name
+                FROM declarations d
+                JOIN taxpayers t ON d.taxpayer_id = t.id
+                WHERE 1=1
+            """
+            params = []
 
-    def count_by_status(self) -> dict:
-        conn = self._db.connect()
-        rows = conn.execute(
-            "SELECT status, COUNT(*) as n FROM declarations GROUP BY status"
-        ).fetchall()
-        return {r["status"]: r["n"] for r in rows}
+            if query:
+                sql += " AND (d.reference_number LIKE ? OR t.full_name LIKE ? OR d.declaration_type LIKE ? OR d.fiscal_year LIKE ?)"
+                like_query = f"%{query}%"
+                params.extend([like_query, like_query, like_query, like_query])
 
-    def sum_amounts(self) -> float:
-        conn = self._db.connect()
-        row = conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) as total FROM declarations WHERE status = 'Validated'"
-        ).fetchone()
-        return float(row["total"])
+            if status_filter:
+                sql += " AND d.status = ?"
+                params.append(status_filter)
 
-    def monthly_stats(self) -> list:
-        conn = self._db.connect()
-        rows = conn.execute(
-            """SELECT strftime('%Y-%m', date) as month,
-               COUNT(*) as total,
-               SUM(CASE WHEN status='Validated' THEN 1 ELSE 0 END) as validated,
-               SUM(amount) as revenue
-               FROM declarations
-               GROUP BY month
-               ORDER BY month DESC
-               LIMIT 6"""
-        ).fetchall()
-        return [dict(r) for r in reversed(rows)]
+            if taxpayer_id is not None:
+                sql += " AND d.taxpayer_id = ?"
+                params.append(taxpayer_id)
+
+            sql += " ORDER BY d.filed_date DESC"
+
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_kpi_counts(self) -> Dict[str, int]:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT status, COUNT(*) as count FROM declarations GROUP BY status")
+            rows = cursor.fetchall()
+            kpis = {"total": 0, "draft": 0, "submitted": 0, "validated": 0, "rejected": 0}
+            for row in rows:
+                status = row["status"].lower()
+                kpis[status] = row["count"]
+                kpis["total"] += row["count"]
+            return kpis
+        finally:
+            conn.close()
+
+    def get_total_revenue(self) -> float:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            # Revenue is defined as total_due for validated declarations
+            cursor.execute("SELECT SUM(total_due) as total FROM declarations WHERE status = 'Validated'")
+            row = cursor.fetchone()
+            return row["total"] if row and row["total"] is not None else 0.0
+        finally:
+            conn.close()
+            
+    def get_revenue_by_year(self) -> List[Dict[str, Any]]:
+        """Used for dashboard charts (shows revenue by fiscal year)."""
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT fiscal_year, SUM(total_due) as revenue
+                FROM declarations
+                WHERE status = 'Validated'
+                GROUP BY fiscal_year
+                ORDER BY fiscal_year ASC
+                LIMIT 5
+                """
+            )
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()

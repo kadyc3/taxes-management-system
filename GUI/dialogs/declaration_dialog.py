@@ -1,120 +1,193 @@
-from __future__ import annotations
-from typing import Optional
-from PyQt6.QtWidgets import (
-    QWidget, QGridLayout, QLineEdit, QComboBox, QLabel, QTextEdit,
-)
-from GUI.dialogs.base_dialog import BaseDialog
-from GUI.widgets.base_widgets import FieldLabel, PrimaryButton, SecondaryButton
-from Kernel.models.declaration import Declaration, DeclarationStatus, DeclarationType
+from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QHBoxLayout, QPushButton, QLabel, QVBoxLayout
+from PyQt6.QtCore import Qt
+from Kernel.models.declaration import Declaration, DeclarationStatus
+from Kernel.exceptions.app_exceptions import ValidationError
 
+class DeclarationDialog(QDialog):
+    def __init__(self, declaration_service, taxpayer_service, current_user, declaration: Declaration = None, parent=None):
+        super().__init__(parent)
+        self.declaration_service = declaration_service
+        self.taxpayer_service = taxpayer_service
+        self.current_user = current_user
+        self.declaration = declaration
+        
+        self.setWindowTitle("File Declaration" if not declaration else "Edit Declaration")
+        self.setModal(True)
+        self.setMinimumWidth(450)
 
-class DeclarationDialog(BaseDialog):
-    def __init__(
-        self,
-        declaration: Optional[Declaration] = None,
-        taxpayer_names: Optional[list[str]] = None,
-        parent: Optional[QWidget] = None,
-    ) -> None:
-        is_edit = declaration is not None
-        super().__init__(
-            title="Edit Declaration" if is_edit else "New Declaration",
-            subtitle="Update declaration details." if is_edit else "Create a new tax declaration.",
-            parent=parent,
-            min_width=540,
-        )
-        self._declaration = declaration or Declaration.empty()
-        self._taxpayer_names = taxpayer_names or []
-        self._build_form()
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
-    def _build_form(self) -> None:
-        grid = QGridLayout()
-        grid.setSpacing(12)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
+        form_layout = QFormLayout()
+        form_layout.setSpacing(10)
 
-        # Taxpayer
-        grid.addWidget(FieldLabel("Taxpayer *"), 0, 0)
-        self._taxpayer = QComboBox()
-        for name in self._taxpayer_names:
-            self._taxpayer.addItem(name)
-        idx = self._taxpayer.findText(self._declaration.taxpayer)
-        if idx >= 0:
-            self._taxpayer.setCurrentIndex(idx)
-        elif self._declaration.taxpayer:
-            self._taxpayer.addItem(self._declaration.taxpayer)
-            self._taxpayer.setCurrentText(self._declaration.taxpayer)
-        grid.addWidget(self._taxpayer, 1, 0)
+        # Taxpayer select
+        self.taxpayer_combo = QComboBox(self)
+        self.load_taxpayers()
+        form_layout.addRow("Taxpayer *:", self.taxpayer_combo)
 
-        # Type
-        grid.addWidget(FieldLabel("Declaration Type"), 0, 1)
-        self._type = QComboBox()
-        for t in DeclarationType:
-            self._type.addItem(t.value)
-        idx = self._type.findText(self._declaration.declaration_type.value)
-        if idx >= 0:
-            self._type.setCurrentIndex(idx)
-        grid.addWidget(self._type, 1, 1)
+        # Reference Number
+        self.ref_input = QLineEdit(self)
+        self.ref_input.setPlaceholderText("e.g. DEC-2026-001")
+        form_layout.addRow("Reference Number *:", self.ref_input)
 
-        # Amount
-        grid.addWidget(FieldLabel("Amount (TND) *"), 2, 0)
-        self._amount = QLineEdit(str(self._declaration.amount))
-        self._amount.setPlaceholderText("0.00")
-        grid.addWidget(self._amount, 3, 0)
+        # Declaration Type
+        self.type_combo = QComboBox(self)
+        self.type_combo.addItems(["TVA", "IR", "IS", "Property Tax", "Customs Duty", "Other"])
+        self.type_combo.setEditable(True)
+        form_layout.addRow("Declaration Type *:", self.type_combo)
 
-        # Date
-        grid.addWidget(FieldLabel("Declaration Date"), 2, 1)
-        self._date = QLineEdit(self._declaration.date)
-        self._date.setPlaceholderText("YYYY-MM-DD")
-        grid.addWidget(self._date, 3, 1)
+        # Fiscal Year
+        self.year_input = QSpinBox(self)
+        self.year_input.setRange(1900, 2100)
+        self.year_input.setValue(2026)
+        form_layout.addRow("Fiscal Year *:", self.year_input)
 
-        # Status
-        grid.addWidget(FieldLabel("Status"), 4, 0)
-        self._status = QComboBox()
-        for s in DeclarationStatus:
-            self._status.addItem(s.value)
-        idx = self._status.findText(self._declaration.status.value)
-        if idx >= 0:
-            self._status.setCurrentIndex(idx)
-        grid.addWidget(self._status, 5, 0)
+        # Period
+        self.period_combo = QComboBox(self)
+        self.period_combo.addItems(["Q1", "Q2", "Q3", "Q4", "Monthly", "Annual"])
+        self.period_combo.setEditable(True)
+        form_layout.addRow("Period *:", self.period_combo)
 
-        # Notes
-        grid.addWidget(FieldLabel("Notes"), 4, 1)
-        self._notes = QLineEdit(self._declaration.notes)
-        self._notes.setPlaceholderText("Optional notes…")
-        grid.addWidget(self._notes, 5, 1)
+        # Gross Amount
+        self.gross_input = QDoubleSpinBox(self)
+        self.gross_input.setRange(0, 999999999.99)
+        self.gross_input.setDecimals(2)
+        self.gross_input.setPrefix("$ ")
+        self.gross_input.valueChanged.connect(self.recalculate_total_due)
+        form_layout.addRow("Gross Amount *:", self.gross_input)
 
-        self.add_content_layout(grid)
+        # Deductions
+        self.deductions_input = QDoubleSpinBox(self)
+        self.deductions_input.setRange(0, 999999999.99)
+        self.deductions_input.setDecimals(2)
+        self.deductions_input.setPrefix("$ ")
+        self.deductions_input.valueChanged.connect(self.recalculate_total_due)
+        form_layout.addRow("Deductions *:", self.deductions_input)
 
-        self._error_lbl = QLabel("")
-        self._error_lbl.setStyleSheet("color: #dc2626; font-size: 12px;")
-        self._error_lbl.hide()
-        self.add_content_widget(self._error_lbl)
+        # Penalties
+        self.penalties_input = QDoubleSpinBox(self)
+        self.penalties_input.setRange(0, 999999999.99)
+        self.penalties_input.setDecimals(2)
+        self.penalties_input.setPrefix("$ ")
+        self.penalties_input.valueChanged.connect(self.recalculate_total_due)
+        form_layout.addRow("Penalties *:", self.penalties_input)
 
-        cancel_btn = SecondaryButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        save_btn = PrimaryButton("Save Declaration")
-        save_btn.clicked.connect(self._on_save)
-        self.add_button_row(cancel_btn, save_btn)
+        # Total Due (calculated field)
+        self.total_due_display = QLabel("$ 0.00", self)
+        self.total_due_display.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
+        form_layout.addRow("Total Tax Due:", self.total_due_display)
 
-    def _on_save(self) -> None:
-        taxpayer = self._taxpayer.currentText().strip()
-        if not taxpayer:
-            self._error_lbl.setText("Taxpayer is required.")
-            self._error_lbl.show()
+        main_layout.addLayout(form_layout)
+
+        # Validation feedback label
+        self.error_label = QLabel("", self)
+        self.error_label.setStyleSheet("color: #f87171; font-weight: 500;")
+        self.error_label.setWordWrap(True)
+        main_layout.addWidget(self.error_label)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+        btn_layout.addStretch()
+
+        self.cancel_btn = QPushButton("Cancel", self)
+        self.cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(self.cancel_btn)
+
+        self.save_btn = QPushButton("Save Draft", self)
+        self.save_btn.setObjectName("PrimaryButton")
+        self.save_btn.clicked.connect(self.on_save_clicked)
+        btn_layout.addWidget(self.save_btn)
+
+        main_layout.addLayout(btn_layout)
+
+        if declaration:
+            self.load_declaration_data()
+
+    def load_taxpayers(self):
+        taxpayers = self.taxpayer_service.search_taxpayers()
+        self.taxpayer_combo.clear()
+        
+        # Populate combobox with UserRole mapping
+        for t in taxpayers:
+            # We display Name and NIN, store ID in userData
+            display_text = f"{t.full_name} ({t.nin})"
+            self.taxpayer_combo.addItem(display_text, t.id)
+
+    def load_declaration_data(self):
+        d = self.declaration
+        # Select correct taxpayer
+        index = self.taxpayer_combo.findData(d.taxpayer_id)
+        if index >= 0:
+            self.taxpayer_combo.setCurrentIndex(index)
+            
+        self.ref_input.setText(d.reference_number)
+        self.type_combo.setCurrentText(d.declaration_type)
+        self.year_input.setValue(d.fiscal_year)
+        self.period_combo.setCurrentText(d.period)
+        self.gross_input.setValue(d.gross_amount)
+        self.deductions_input.setValue(d.deductions)
+        self.penalties_input.setValue(d.penalties)
+        self.recalculate_total_due()
+
+        # Rename button if updating
+        self.save_btn.setText("Update Declaration")
+
+    def recalculate_total_due(self):
+        gross = self.gross_input.value()
+        deductions = self.deductions_input.value()
+        penalties = self.penalties_input.value()
+        
+        total = gross - deductions + penalties
+        self.total_due_display.setText(f"$ {total:,.2f}")
+
+    def on_save_clicked(self):
+        taxpayer_id = self.taxpayer_combo.currentData()
+        if not taxpayer_id:
+            self.error_label.setText("You must select a taxpayer.")
             return
+
+        ref_num = self.ref_input.text().strip()
+        dec_type = self.type_combo.currentText().strip()
+        year = self.year_input.value()
+        period = self.period_combo.currentText().strip()
+        gross = self.gross_input.value()
+        deductions = self.deductions_input.value()
+        penalties = self.penalties_input.value()
+
         try:
-            amount = float(self._amount.text().strip())
-        except ValueError:
-            self._error_lbl.setText("Amount must be a valid number.")
-            self._error_lbl.show()
-            return
-        self._declaration.taxpayer = taxpayer
-        self._declaration.declaration_type = DeclarationType(self._type.currentText())
-        self._declaration.amount = amount
-        self._declaration.date = self._date.text().strip()
-        self._declaration.status = DeclarationStatus(self._status.currentText())
-        self._declaration.notes = self._notes.text().strip()
-        self.accept()
-
-    def get_declaration(self) -> Declaration:
-        return self._declaration
+            if not self.declaration:
+                # Create mode, default status is Draft
+                self.declaration = self.declaration_service.create_declaration(
+                    taxpayer_id=taxpayer_id,
+                    reference_number=ref_num,
+                    declaration_type=dec_type,
+                    fiscal_year=year,
+                    period=period,
+                    gross_amount=gross,
+                    deductions=deductions,
+                    penalties=penalties,
+                    current_user=self.current_user,
+                    status="Draft"
+                )
+            else:
+                # Edit mode
+                self.declaration = self.declaration_service.update_declaration(
+                    declaration_id=self.declaration.id,
+                    taxpayer_id=taxpayer_id,
+                    reference_number=ref_num,
+                    declaration_type=dec_type,
+                    fiscal_year=year,
+                    period=period,
+                    gross_amount=gross,
+                    deductions=deductions,
+                    penalties=penalties,
+                    current_user=self.current_user
+                )
+            self.accept()
+        except ValidationError as e:
+            self.error_label.setText(str(e))
+        except Exception as e:
+            self.error_label.setText(f"An unexpected error occurred: {str(e)}")

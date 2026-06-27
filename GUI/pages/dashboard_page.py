@@ -1,307 +1,194 @@
-from __future__ import annotations
-from typing import Optional
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
-    QGridLayout, QFrame, QSizePolicy,
-)
-from PyQt6.QtCore import Qt, QTimer
-
-from GUI.widgets.base_widgets import (
-    KpiCard, SectionTitle, PrimaryButton, SecondaryButton, Card, StatusBadge,
-)
-from GUI.widgets.kpi_card import KpiCard
-from GUI.widgets.chart_widgets import BarChartWidget, LineChartWidget, DonutChartWidget
-from Kernel.services.dashboard_service import DashboardService, DashboardStats
-
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame, QTableWidget, QTableWidgetItem, QHeaderView
+from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtCore import Qt
+from ..widgets.charts import DonutChartWidget, BarChartWidget
 
 class DashboardPage(QWidget):
-    def __init__(
-        self,
-        service: DashboardService,
-        parent: Optional[QWidget] = None,
-    ) -> None:
+    def __init__(self, dashboard_service, parent=None):
         super().__init__(parent)
-        self._service = service
-        self._build_ui()
-        self._load_data()
+        self.dashboard_service = dashboard_service
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
 
-        self._clock_timer = QTimer(self)
-        self._clock_timer.timeout.connect(self._update_clock)
-        self._clock_timer.start(1000)
+        # Header Title
+        title = QLabel("Dashboard Summary", self)
+        title.setObjectName("HeaderTitle")
+        layout.addWidget(title)
 
-    def _build_ui(self) -> None:
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        # 1. KPI Cards Grid
+        kpi_layout = QGridLayout()
+        kpi_layout.setSpacing(15)
 
-        scroll = QScrollArea()
-        scroll.setObjectName("PageScrollArea")
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.revenue_card = self.create_kpi_card("Total Revenue (Validated)", "$ 0.00", "#38bdf8")
+        self.taxpayers_card = self.create_kpi_card("Total Taxpayers", "0", "#10b981")
+        self.declarations_card = self.create_kpi_card("Total Declarations", "0", "#6366f1")
+        self.pending_card = self.create_kpi_card("Pending Validation", "0", "#f59e0b")
 
-        container = QWidget()
-        self._layout = QVBoxLayout(container)
-        self._layout.setContentsMargins(24, 24, 24, 24)
-        self._layout.setSpacing(20)
+        kpi_layout.addWidget(self.revenue_card, 0, 0)
+        kpi_layout.addWidget(self.taxpayers_card, 0, 1)
+        kpi_layout.addWidget(self.declarations_card, 0, 2)
+        kpi_layout.addWidget(self.pending_card, 0, 3)
 
-        self._build_greeting()
-        self._build_taxpayer_kpis()
-        self._build_declaration_kpis()
-        self._build_charts_row()
-        self._build_bottom_row()
+        layout.addLayout(kpi_layout)
 
-        self._layout.addStretch()
-        scroll.setWidget(container)
-        outer.addWidget(scroll)
+        # 2. Charts Section (Horizontal Layout)
+        charts_layout = QHBoxLayout()
+        charts_layout.setSpacing(20)
 
-    def _build_greeting(self) -> None:
-        banner = QFrame()
-        banner.setObjectName("GreetingBanner")
-        row = QHBoxLayout(banner)
-        row.setContentsMargins(24, 20, 24, 20)
-        row.setSpacing(16)
+        # Revenue Chart Card
+        rev_frame = QFrame(self)
+        rev_frame.setObjectName("CardFrame")
+        rev_frame.setProperty("class", "CardFrame")
+        rev_vbox = QVBoxLayout(rev_frame)
+        rev_title = QLabel("Revenue History (Validated)", rev_frame)
+        rev_title.setStyleSheet("font-weight: 600; color: #94a3b8;")
+        rev_vbox.addWidget(rev_title)
+        self.revenue_chart = BarChartWidget(rev_frame)
+        rev_vbox.addWidget(self.revenue_chart)
+        charts_layout.addWidget(rev_frame, 3)
 
-        left = QVBoxLayout()
-        left.setSpacing(4)
-        title = QLabel("Bonjour, Admin")
-        title.setObjectName("GreetingTitle")
-        sub = QLabel("Here is what is happening across the tax administration today.")
-        sub.setObjectName("GreetingSubtitle")
-        left.addWidget(title)
-        left.addWidget(sub)
-        row.addLayout(left)
-        row.addStretch()
+        # Declaration Statuses Chart Card
+        status_frame = QFrame(self)
+        status_frame.setObjectName("CardFrame")
+        status_frame.setProperty("class", "CardFrame")
+        status_vbox = QVBoxLayout(status_frame)
+        status_title = QLabel("Declarations Spread", status_frame)
+        status_title.setStyleSheet("font-weight: 600; color: #94a3b8;")
+        status_vbox.addWidget(status_title)
+        
+        # Donut wrapper to put chart and legend side by side
+        donut_hbox = QHBoxLayout()
+        self.donut_chart = DonutChartWidget(status_frame)
+        donut_hbox.addWidget(self.donut_chart, 2)
+        
+        # Legend layout
+        self.legend_label = QLabel(status_frame)
+        self.legend_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        donut_hbox.addWidget(self.legend_label, 1)
+        
+        status_vbox.addLayout(donut_hbox)
+        charts_layout.addWidget(status_frame, 2)
 
-        clock_box = QFrame()
-        clock_box.setObjectName("ClockBox")
-        clock_layout = QVBoxLayout(clock_box)
-        clock_layout.setContentsMargins(14, 8, 14, 8)
-        clock_layout.setSpacing(2)
-        self._date_lbl = QLabel()
-        self._date_lbl.setObjectName("ClockDate")
-        self._date_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self._time_lbl = QLabel()
-        self._time_lbl.setObjectName("ClockTime")
-        self._time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        clock_layout.addWidget(self._date_lbl)
-        clock_layout.addWidget(self._time_lbl)
-        row.addWidget(clock_box)
+        layout.addLayout(charts_layout)
 
-        refresh_btn = PrimaryButton("⟳  Refresh")
-        refresh_btn.clicked.connect(self._load_data)
-        row.addWidget(refresh_btn)
+        # 3. Recent Audit Logs / Activities Feed
+        feed_frame = QFrame(self)
+        feed_frame.setObjectName("CardFrame")
+        feed_frame.setProperty("class", "CardFrame")
+        feed_vbox = QVBoxLayout(feed_frame)
+        
+        feed_title = QLabel("Recent System Activities", feed_frame)
+        feed_title.setStyleSheet("font-weight: 600; color: #94a3b8;")
+        feed_vbox.addWidget(feed_title)
 
-        self._layout.addWidget(banner)
-        self._update_clock()
+        self.activity_table = QTableWidget(feed_frame)
+        self.activity_table.setColumnCount(4)
+        self.activity_table.setHorizontalHeaderLabels(["Timestamp", "User", "Action", "Details"])
+        self.activity_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.activity_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.activity_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.activity_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.activity_table.setMinimumHeight(150)
+        self.activity_table.setStyleSheet("border: none; background: transparent;")
+        
+        feed_vbox.addWidget(self.activity_table)
+        layout.addWidget(feed_frame)
 
-    def _update_clock(self) -> None:
-        from datetime import datetime
-        now = datetime.now()
-        self._date_lbl.setText(now.strftime("%A, %d %B %Y"))
-        self._time_lbl.setText(now.strftime("%H:%M:%S"))
+        self.refresh_data()
 
-    def _build_taxpayer_kpis(self) -> None:
-        self._layout.addWidget(SectionTitle("Taxpayers Overview"))
-        self._tp_grid = QGridLayout()
-        self._tp_grid.setSpacing(12)
-        self._layout.addLayout(self._tp_grid)
+    def create_kpi_card(self, label: str, default_val: str, accent_color: str) -> QFrame:
+        card = QFrame(self)
+        card.setObjectName("CardFrame")
+        card.setProperty("class", "CardFrame")
+        card.setStyleSheet(f"border-left: 4px solid {accent_color};")
+        
+        vbox = QVBoxLayout(card)
+        vbox.setContentsMargins(15, 12, 15, 12)
+        vbox.setSpacing(5)
 
-    def _build_declaration_kpis(self) -> None:
-        self._layout.addWidget(SectionTitle("Declarations Overview"))
-        self._dcl_grid = QGridLayout()
-        self._dcl_grid.setSpacing(12)
-        self._layout.addLayout(self._dcl_grid)
+        lbl = QLabel(label, card)
+        lbl.setObjectName("KpiLabel")
+        vbox.addWidget(lbl)
 
-    def _build_charts_row(self) -> None:
-        self._layout.addWidget(SectionTitle("Analytics"))
-        charts_row = QHBoxLayout()
-        charts_row.setSpacing(16)
+        val = QLabel(default_val, card)
+        val.setObjectName("KpiValue")
+        vbox.addWidget(val)
 
-        bar_card = QFrame()
-        bar_card.setObjectName("ChartWidget")
-        bar_layout = QVBoxLayout(bar_card)
-        bar_layout.setContentsMargins(0, 0, 0, 8)
-        self._bar_chart = BarChartWidget(
-            "Declarations per Month",
-            [],
-            ("Total", "Validated"),
-            ("#2563eb", "#16a34a"),
-        )
-        bar_layout.addWidget(self._bar_chart)
-        charts_row.addWidget(bar_card, 3)
+        return card
 
-        donut_card = QFrame()
-        donut_card.setObjectName("ChartWidget")
-        donut_layout = QVBoxLayout(donut_card)
-        donut_layout.setContentsMargins(0, 0, 0, 8)
-        self._donut_chart = DonutChartWidget("Declaration Status", [])
-        donut_layout.addWidget(self._donut_chart)
-        charts_row.addWidget(donut_card, 2)
+    def update_kpi_card_value(self, card: QFrame, new_value: str):
+        val_label = card.findChild(QLabel, "KpiValue")
+        if val_label:
+            val_label.setText(new_value)
 
-        self._layout.addLayout(charts_row)
+    def refresh_data(self):
+        # Fetch KPIs
+        kpis = self.dashboard_service.get_kpis()
 
-    def _build_bottom_row(self) -> None:
-        row = QHBoxLayout()
-        row.setSpacing(16)
+        # Update KPI Cards
+        self.update_kpi_card_value(self.revenue_card, f"$ {kpis['total_revenue']:,.2f}")
+        self.update_kpi_card_value(self.taxpayers_card, f"{kpis['taxpayers']['total']}")
+        self.update_kpi_card_value(self.declarations_card, f"{kpis['declarations']['total']}")
+        self.update_kpi_card_value(self.pending_card, f"{kpis['declarations']['submitted']}")
 
-        # Recent activity
-        activity_card = QFrame()
-        activity_card.setObjectName("Card")
-        act_layout = QVBoxLayout(activity_card)
-        act_layout.setContentsMargins(20, 16, 20, 16)
-        act_layout.setSpacing(10)
-        act_title = SectionTitle("Recent Activity")
-        act_layout.addWidget(act_title)
-        self._activity_layout = QVBoxLayout()
-        self._activity_layout.setSpacing(6)
-        act_layout.addLayout(self._activity_layout)
-        row.addWidget(activity_card, 3)
+        # Update Bar Chart (Revenue by year)
+        revenue_data = self.dashboard_service.get_revenue_by_year()
+        chart_bars = [(str(row["fiscal_year"]), row["revenue"]) for row in revenue_data]
+        self.revenue_chart.set_data(chart_bars)
 
-        # Alerts
-        alerts_card = QFrame()
-        alerts_card.setObjectName("Card")
-        alert_layout = QVBoxLayout(alerts_card)
-        alert_layout.setContentsMargins(20, 16, 20, 16)
-        alert_layout.setSpacing(10)
-        alert_title = SectionTitle("Alerts")
-        alert_layout.addWidget(alert_title)
-        self._alerts_layout = QVBoxLayout()
-        self._alerts_layout.setSpacing(8)
-        alert_layout.addLayout(self._alerts_layout)
-        alert_layout.addStretch()
-        row.addWidget(alerts_card, 2)
-
-        self._layout.addLayout(row)
-
-    def _load_data(self) -> None:
-        stats = self._service.get_stats()
-        self._populate_tp_kpis(stats)
-        self._populate_dcl_kpis(stats)
-        self._populate_charts(stats)
-        self._populate_activity(stats)
-        self._populate_alerts(stats)
-
-    def _clear_layout(self, layout: QGridLayout | QVBoxLayout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-    def _populate_tp_kpis(self, stats: DashboardStats) -> None:
-        self._clear_layout(self._tp_grid)
-        cards = [
-            ("Total Taxpayers", str(stats.total_taxpayers), "♟", "blue",
-             ("4.2%", True)),
-            ("Active", str(stats.active_taxpayers), "✓", "green",
-             ("2.1%", True)),
-            ("Suspended", str(stats.suspended_taxpayers), "⏸", "orange",
-             ("0.8%", False)),
-            ("Deregistered", str(stats.deregistered_taxpayers), "✕", "red",
-             ("1.3%", False)),
-        ]
-        for col, (lbl, val, icon, accent, trend) in enumerate(cards):
-            card = KpiCard(lbl, val, icon, accent=accent, trend=trend)
-            self._tp_grid.addWidget(card, 0, col)
-
-    def _populate_dcl_kpis(self, stats: DashboardStats) -> None:
-        self._clear_layout(self._dcl_grid)
-        amount_str = f"{stats.total_taxes_due:,.0f} TND"
-        cards = [
-            ("Total Declarations", str(stats.total_declarations), "◫", "blue", None),
-            ("Draft", str(stats.draft_declarations), "◻", "orange", None),
-            ("Submitted", str(stats.submitted_declarations), "◈", "darkblue", None),
-            ("Validated", str(stats.validated_declarations), "◉", "green", None),
-            ("Rejected", str(stats.rejected_declarations), "◐", "red", None),
-            ("Total Taxes Due", amount_str, "₺", "blue", None),
-        ]
-        for col, (lbl, val, icon, accent, trend) in enumerate(cards):
-            card = KpiCard(lbl, val, icon, accent=accent)
-            self._dcl_grid.addWidget(card, 0, col)
-
-    def _populate_charts(self, stats: DashboardStats) -> None:
-        monthly = stats.monthly_stats
-        bar_data = []
-        for row in monthly:
-            month_label = row.get("month", "")[-2:] or row.get("month", "")
-            bar_data.append((
-                month_label,
-                float(row.get("total", 0)),
-                float(row.get("validated", 0)),
-            ))
-        self._bar_chart.update_data(bar_data)
-
-        donut_data = [
-            ("Validated", stats.validated_declarations, "#16a34a"),
-            ("Submitted", stats.submitted_declarations, "#2563eb"),
-            ("Draft", stats.draft_declarations, "#f59e0b"),
-            ("Rejected", stats.rejected_declarations, "#dc2626"),
-        ]
-        self._donut_chart.update_data([d for d in donut_data if d[1] > 0])
-
-    def _populate_activity(self, stats: DashboardStats) -> None:
-        while self._activity_layout.count():
-            item = self._activity_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        severity_icons = {
-            "success": ("✓", "#dcfce7", "#16a34a"),
-            "info": ("ℹ", "#dbeafe", "#2563eb"),
-            "warning": ("⚠", "#fef3c7", "#92400e"),
-            "danger": ("✕", "#fee2e2", "#dc2626"),
+        # Update Donut Chart (Declaration spread)
+        dec_kpis = kpis["declarations"]
+        donut_data = {
+            "Draft": dec_kpis.get("draft", 0),
+            "Submitted": dec_kpis.get("submitted", 0),
+            "Validated": dec_kpis.get("validated", 0),
+            "Rejected": dec_kpis.get("rejected", 0)
         }
+        
+        colors = {
+            "Draft": QColor("#94a3b8"),       # Slate Gray
+            "Submitted": QColor("#f59e0b"),   # Amber Orange
+            "Validated": QColor("#10b981"),   # Emerald Green
+            "Rejected": QColor("#ef4444")     # Crimson Rose
+        }
+        self.donut_chart.set_data(donut_data, colors)
 
-        for log in stats.recent_logs[:5]:
-            item = QFrame()
-            item.setObjectName("ActivityItem")
-            item_layout = QHBoxLayout(item)
-            item_layout.setContentsMargins(10, 8, 10, 8)
-            item_layout.setSpacing(10)
+        # Update Legend Label
+        legend_text = f"""
+        <span style="color: #94a3b8;">■</span> Draft: {donut_data['Draft']}<br>
+        <span style="color: #f59e0b;">■</span> Submitted: {donut_data['Submitted']}<br>
+        <span style="color: #10b981;">■</span> Validated: {donut_data['Validated']}<br>
+        <span style="color: #ef4444;">■</span> Rejected: {donut_data['Rejected']}
+        """
+        self.legend_label.setText(legend_text)
 
-            sev = log.severity.value
-            ch, bg, fg = severity_icons.get(sev, ("ℹ", "#dbeafe", "#2563eb"))
-            icon_lbl = QLabel(ch)
-            icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            icon_lbl.setFixedSize(28, 28)
-            icon_lbl.setStyleSheet(
-                f"background-color: {bg}; color: {fg}; "
-                f"border-radius: 8px; font-weight: 700;"
-            )
-            item_layout.addWidget(icon_lbl)
+        # Update Activities Feed Table
+        logs = self.dashboard_service.get_recent_activity(10)
+        self.activity_table.setRowCount(0)
+        
+        for idx, log in enumerate(logs):
+            self.activity_table.insertRow(idx)
+            
+            # Format timestamp nicely
+            ts_str = log.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            
+            self.activity_table.setItem(idx, 0, QTableWidgetItem(ts_str))
+            self.activity_table.setItem(idx, 1, QTableWidgetItem(log.username))
+            
+            action_item = QTableWidgetItem(log.action.upper())
+            # Color actions for nice visual cues
+            if "create" in log.action or "seed" in log.action:
+                action_item.setForeground(QColor("#34d399"))
+            elif "delete" in log.action or "failed" in log.action:
+                action_item.setForeground(QColor("#f87171"))
+            elif "validate" in log.action:
+                action_item.setForeground(QColor("#60a5fa"))
+            elif "reject" in log.action:
+                action_item.setForeground(QColor("#fbbf24"))
+                
+            self.activity_table.setItem(idx, 2, action_item)
+            self.activity_table.setItem(idx, 3, QTableWidgetItem(log.details or ""))
 
-            text_col = QVBoxLayout()
-            text_col.setSpacing(1)
-            title = QLabel(log.description[:60])
-            title.setObjectName("ActivityTitle")
-            meta = QLabel(f"{log.action}  ·  {log.date}")
-            meta.setObjectName("ActivityMeta")
-            text_col.addWidget(title)
-            text_col.addWidget(meta)
-            item_layout.addLayout(text_col)
-
-            self._activity_layout.addWidget(item)
-
-    def _populate_alerts(self, stats: DashboardStats) -> None:
-        while self._alerts_layout.count():
-            item = self._alerts_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        alerts = [
-            ("Draft declarations waiting", stats.draft_declarations, "warning"),
-            ("Rejected declarations", stats.rejected_declarations, "danger"),
-            ("Suspended taxpayers", stats.suspended_taxpayers, "warning"),
-        ]
-        for label, value, kind in alerts:
-            frame = QFrame()
-            frame.setObjectName("AlertWarning" if kind == "warning" else "AlertDanger")
-            row = QHBoxLayout(frame)
-            row.setContentsMargins(12, 10, 12, 10)
-            lbl = QLabel(label)
-            lbl.setObjectName("AlertWarningLabel" if kind == "warning" else "AlertDangerLabel")
-            val_lbl = QLabel(str(value))
-            val_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
-            row.addWidget(lbl)
-            row.addStretch()
-            row.addWidget(val_lbl)
-            self._alerts_layout.addWidget(frame)
+        self.activity_table.resizeRowsToContents()

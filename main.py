@@ -1,137 +1,90 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QWidget
+import os
+from PyQt6.QtWidgets import QApplication, QDialog
 
-from Infrastructure.migrations.schema import DatabaseInitializer
+# Ensure current directory is in python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Services
-from Kernel.services.auth_service import AuthService
-from Kernel.services.dashboard_service import DashboardService
-from Kernel.services.declaration_service import DeclarationService
-from Kernel.services.audit_service import AuditService
-from Kernel.services.taxpayer_service import TaxpayerService
-
-# Repositories
+from Infrastructure.database.connection import DatabaseConnection
+from Infrastructure.database.schema import init_db
 from Infrastructure.repositories.user_repository import UserRepository
 from Infrastructure.repositories.taxpayer_repository import TaxpayerRepository
 from Infrastructure.repositories.declaration_repository import DeclarationRepository
-
-# UI
-from GUI.windows.login_window import LoginWindow
-from GUI.windows.dashboard_window import DashboardWindow
-from GUI.pages.taxpayer_page import TaxpayerPage
-from GUI.pages.declaration_page import DeclarationPage
-from GUI.theme.app_theme import APP_STYLESHEET
-
-from Infrastructure.database.connection import DatabaseConnection
 from Infrastructure.repositories.audit_repository import AuditRepository
-from Infrastructure.migrations.schema import DatabaseInitializer
+
+from Kernel.services.auth_service import AuthService
+from Kernel.services.taxpayer_service import TaxpayerService
+from Kernel.services.declaration_service import DeclarationService
+from Kernel.services.dashboard_service import DashboardService
+
+from GUI.stylesheet import get_dark_stylesheet
+from GUI.login_window import LoginWindow
+from GUI.dashboard_window import DashboardWindow
 
 def main():
-    print("🚀 Starting application...")
-
-    app = QApplication(sys.argv)
-    app.setStyleSheet(APP_STYLESHEET)
-     # =========================
-    # DATABASE INITIALIZATION
-    # =========================
-    db_init = DatabaseInitializer()
-    db_init.initialize()
-    print("✅ Database initialized")
-    # ----------------------------
-    # Database
-    # ----------------------------
-    db = DatabaseConnection()
-
-    # ----------------------------
-    # Repositories
-    # ----------------------------
-    user_repo = UserRepository(db)
-    taxpayer_repo = TaxpayerRepository(db)
-    declaration_repo = DeclarationRepository(db)
-    audit_repo = AuditRepository(db)
-
-
-    print("✅ Repositories created")
-
-    # ==================================================
-    # Services (BUSINESS LAYER)
-    # ==================================================
+    # 1. Initialize SQLite Database
+    db_name = "taxes.db"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(base_dir, db_name)
     
-    audit_service = AuditService(audit_repo)
-    auth_service = AuthService(
-        user_repo,
-        audit_service
-    )
-    taxpayer_service = TaxpayerService(taxpayer_repo, audit_service)
+    DatabaseConnection.initialize(db_path)
+    
+    try:
+        init_db()
+    except Exception as e:
+        print(f"CRITICAL: Failed to initialize SQLite database: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    taxpayer_service = TaxpayerService(
-    taxpayer_repo,
-    audit_service
-    )
+    # 2. Instantiate Repositories (Infrastructure)
+    user_repo = UserRepository()
+    taxpayer_repo = TaxpayerRepository()
+    declaration_repo = DeclarationRepository()
+    audit_repo = AuditRepository()
 
-    declaration_service = DeclarationService(
-        declaration_repo,
-        taxpayer_repo,
-        audit_service
-    )
+    # 3. Instantiate Services (Kernel Business Logic)
+    auth_service = AuthService(user_repo, audit_repo)
+    taxpayer_service = TaxpayerService(taxpayer_repo, audit_repo)
+    declaration_service = DeclarationService(declaration_repo, taxpayer_repo, audit_repo)
+    dashboard_service = DashboardService(taxpayer_repo, declaration_repo, audit_repo)
 
-    dashboard_service = DashboardService(
-    taxpayer_service,
-    declaration_service,
-    audit_service
-)
+    # 4. Start PyQt Application
+    app = QApplication(sys.argv)
+    
+    # Apply Slate Dark QSS stylesheet
+    app.setStyleSheet(get_dark_stylesheet())
 
-    print("✅ Services created")
-
-    # ==================================================
-    # UI state
-    # ==================================================
-    dashboard = None
-    login_window = None
-
-    # ==================================================
-    # Login callback
-    # ==================================================
-    def on_login_success(user):
-        if user is None:
-            print("❌ Login failed (wrong credentials)")
-            return
-        nonlocal dashboard, login_window
-
-        print(f"✅ Login successful: {user.username}")
-
-        dashboard = DashboardWindow(
-            auth_service=auth_service,
-            dashboard_service=dashboard_service,
-            taxpayer_page=TaxpayerPage(taxpayer_service),
-            declaration_page = DeclarationPage(
-                declaration_service=declaration_service,
-                taxpayer_service=taxpayer_service,
-                auth_service=auth_service,
-            ),
-            on_logout=on_logout
+    # 5. Routing Event Loop (Handles Login / Logout session transitions)
+    while True:
+        # Show Login Screen
+        login = LoginWindow(auth_service)
+        if login.exec() != QDialog.DialogCode.Accepted:
+            # User canceled login or closed login dialog
+            break
+            
+        current_user = auth_service.get_current_user()
+        if not current_user:
+            break
+            
+        # Initialize and show main dashboard window
+        dashboard_window = DashboardWindow(
+            auth_service, 
+            taxpayer_service, 
+            declaration_service, 
+            dashboard_service
         )
+        dashboard_window.show()
+        
+        # Execute PyQt main loop. Blocks until dashboard_window is closed.
+        app.exec()
+        
+        # If the user closed the window and session is cleared, they logged out.
+        # Loop back to show Login Window. If they closed the window without logging out, exit.
+        if not auth_service.is_authenticated():
+            continue
+        else:
+            break
 
-        dashboard.show()
-        login_window.hide()
-
-    def on_logout():
-        nonlocal dashboard, login_window
-        dashboard.close()
-        login_window.show()
-
-    # ==================================================
-    # Login window
-    # ==================================================
-    login_window = LoginWindow(
-        auth_service=auth_service,
-        on_login_success=on_login_success
-    )
-
-    login_window.show()
-
-    sys.exit(app.exec())
-
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

@@ -1,127 +1,129 @@
-from __future__ import annotations
-from typing import Optional
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
-    QComboBox, QLabel, QGridLayout,
-)
+from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QComboBox, QTextEdit, QHBoxLayout, QPushButton, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt
+from Kernel.models.taxpayer import Taxpayer, TaxpayerType, TaxpayerStatus
+from Kernel.exceptions.app_exceptions import ValidationError
 
-from GUI.dialogs.base_dialog import BaseDialog
-from GUI.widgets.base_widgets import FieldLabel, PrimaryButton, SecondaryButton
-from Kernel.models.taxpayer import Taxpayer, TaxpayerStatus, TaxpayerType
+class TaxpayerDialog(QDialog):
+    def __init__(self, taxpayer_service, current_user, taxpayer: Taxpayer = None, parent=None):
+        super().__init__(parent)
+        self.taxpayer_service = taxpayer_service
+        self.current_user = current_user
+        self.taxpayer = taxpayer
+        
+        self.setWindowTitle("Add Taxpayer" if not taxpayer else "Edit Taxpayer")
+        self.setModal(True)
+        self.setMinimumWidth(400)
 
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
-class TaxpayerDialog(BaseDialog):
-    def __init__(
-        self,
-        taxpayer: Optional[Taxpayer] = None,
-        parent: Optional[QWidget] = None,
-    ) -> None:
-        is_edit = taxpayer is not None
-        super().__init__(
-            title="Edit Taxpayer" if is_edit else "Add Taxpayer",
-            subtitle="Update taxpayer details." if is_edit else "Register a new taxpayer profile.",
-            parent=parent,
-            min_width=520,
-        )
-        self._taxpayer = taxpayer or Taxpayer.empty()
-        self._build_form()
+        form_layout = QFormLayout()
+        form_layout.setSpacing(10)
 
-    def _build_form(self) -> None:
-        grid = QGridLayout()
-        grid.setSpacing(12)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
+        self.full_name_input = QLineEdit(self)
+        self.full_name_input.setPlaceholderText("Enter full name")
+        form_layout.addRow("Full Name *:", self.full_name_input)
 
-        # Name
-        grid.addWidget(FieldLabel("Full Name *"), 0, 0)
-        self._name = QLineEdit(self._taxpayer.name)
-        self._name.setPlaceholderText("e.g. TechNova Tunisie")
-        grid.addWidget(self._name, 1, 0)
+        self.nin_input = QLineEdit(self)
+        self.nin_input.setPlaceholderText("Enter national identification number")
+        form_layout.addRow("NIN *:", self.nin_input)
 
-        # ID (read-only if editing)
-        grid.addWidget(FieldLabel("Taxpayer ID"), 0, 1)
-        self._id = QLineEdit(self._taxpayer.id)
-        self._id.setPlaceholderText("Auto-generated")
-        if self._taxpayer.id:
-            self._id.setReadOnly(True)
-            self._id.setStyleSheet("background-color: #f3f4f6; color: #9ca3af;")
-        grid.addWidget(self._id, 1, 1)
+        self.type_combo = QComboBox(self)
+        self.type_combo.addItems([t.value for t in TaxpayerType])
+        form_layout.addRow("Type:", self.type_combo)
 
-        # Email
-        grid.addWidget(FieldLabel("Email Address *"), 2, 0)
-        self._email = QLineEdit(self._taxpayer.email)
-        self._email.setPlaceholderText("contact@company.tn")
-        grid.addWidget(self._email, 3, 0)
+        self.status_combo = QComboBox(self)
+        self.status_combo.addItems([s.value for s in TaxpayerStatus])
+        form_layout.addRow("Status:", self.status_combo)
 
-        # Phone
-        grid.addWidget(FieldLabel("Phone"), 2, 1)
-        self._phone = QLineEdit(self._taxpayer.phone)
-        self._phone.setPlaceholderText("+216 XX XXX XXX")
-        grid.addWidget(self._phone, 3, 1)
+        self.email_input = QLineEdit(self)
+        self.email_input.setPlaceholderText("example@domain.com")
+        form_layout.addRow("Email:", self.email_input)
 
-        # Status
-        grid.addWidget(FieldLabel("Status"), 4, 0)
-        self._status = QComboBox()
-        for s in TaxpayerStatus:
-            self._status.addItem(s.value)
-        idx = self._status.findText(self._taxpayer.status.value)
-        if idx >= 0:
-            self._status.setCurrentIndex(idx)
-        grid.addWidget(self._status, 5, 0)
+        self.phone_input = QLineEdit(self)
+        self.phone_input.setPlaceholderText("+123 456789")
+        form_layout.addRow("Phone:", self.phone_input)
 
-        # Type
-        grid.addWidget(FieldLabel("Taxpayer Type"), 4, 1)
-        self._type = QComboBox()
-        for t in TaxpayerType:
-            self._type.addItem(t.value)
-        idx = self._type.findText(self._taxpayer.taxpayer_type.value)
-        if idx >= 0:
-            self._type.setCurrentIndex(idx)
-        grid.addWidget(self._type, 5, 1)
+        self.address_input = QTextEdit(self)
+        self.address_input.setPlaceholderText("Enter street, city, country")
+        self.address_input.setMaximumHeight(80)
+        form_layout.addRow("Address:", self.address_input)
 
-        # Registration Date
-        grid.addWidget(FieldLabel("Registration Date"), 6, 0)
-        self._reg_date = QLineEdit(self._taxpayer.registration_date)
-        self._reg_date.setPlaceholderText("YYYY-MM-DD")
-        grid.addWidget(self._reg_date, 7, 0)
+        main_layout.addLayout(form_layout)
 
-        # Address
-        grid.addWidget(FieldLabel("Address"), 6, 1)
-        self._address = QLineEdit(self._taxpayer.address)
-        self._address.setPlaceholderText("City, Region")
-        grid.addWidget(self._address, 7, 1)
-
-        self.add_content_layout(grid)
-
-        # Error label
-        self._error_lbl = QLabel("")
-        self._error_lbl.setStyleSheet("color: #dc2626; font-size: 12px;")
-        self._error_lbl.hide()
-        self.add_content_widget(self._error_lbl)
+        # Validation feedback label
+        self.error_label = QLabel("", self)
+        self.error_label.setStyleSheet("color: #f87171; font-weight: 500;")
+        self.error_label.setWordWrap(True)
+        main_layout.addWidget(self.error_label)
 
         # Buttons
-        cancel_btn = SecondaryButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        save_btn = PrimaryButton("Save Taxpayer" if self._taxpayer.id else "Add Taxpayer")
-        save_btn.clicked.connect(self._on_save)
-        self.add_button_row(cancel_btn, save_btn)
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+        btn_layout.addStretch()
 
-    def _on_save(self) -> None:
-        name = self._name.text().strip()
-        email = self._email.text().strip()
-        if not name or not email:
-            self._error_lbl.setText("Name and email are required.")
-            self._error_lbl.show()
-            return
-        self._taxpayer.name = name
-        self._taxpayer.email = email
-        self._taxpayer.phone = self._phone.text().strip()
-        self._taxpayer.status = TaxpayerStatus(self._status.currentText())
-        self._taxpayer.taxpayer_type = TaxpayerType(self._type.currentText())
-        self._taxpayer.registration_date = self._reg_date.text().strip()
-        self._taxpayer.address = self._address.text().strip()
-        self.accept()
+        self.cancel_btn = QPushButton("Cancel", self)
+        self.cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(self.cancel_btn)
 
-    def get_taxpayer(self) -> Taxpayer:
-        return self._taxpayer
+        self.save_btn = QPushButton("Save", self)
+        self.save_btn.setObjectName("PrimaryButton")
+        self.save_btn.clicked.connect(self.on_save_clicked)
+        btn_layout.addWidget(self.save_btn)
+
+        main_layout.addLayout(btn_layout)
+
+        if taxpayer:
+            self.load_taxpayer_data()
+
+    def load_taxpayer_data(self):
+        t = self.taxpayer
+        self.full_name_input.setText(t.full_name)
+        self.nin_input.setText(t.nin)
+        self.type_combo.setCurrentText(t.taxpayer_type.value)
+        self.status_combo.setCurrentText(t.status.value)
+        self.email_input.setText(t.email)
+        self.phone_input.setText(t.phone)
+        self.address_input.setPlainText(t.address)
+
+    def on_save_clicked(self):
+        full_name = self.full_name_input.text().strip()
+        nin = self.nin_input.text().strip()
+        t_type = self.type_combo.currentText()
+        status = self.status_combo.currentText()
+        email = self.email_input.text().strip()
+        phone = self.phone_input.text().strip()
+        address = self.address_input.toPlainText().strip()
+
+        try:
+            if not self.taxpayer:
+                # Create mode
+                self.taxpayer = self.taxpayer_service.create_taxpayer(
+                    nin=nin,
+                    full_name=full_name,
+                    taxpayer_type=t_type,
+                    status=status,
+                    email=email,
+                    phone=phone,
+                    address=address,
+                    current_user=self.current_user
+                )
+            else:
+                # Edit mode
+                self.taxpayer = self.taxpayer_service.update_taxpayer(
+                    taxpayer_id=self.taxpayer.id,
+                    nin=nin,
+                    full_name=full_name,
+                    taxpayer_type=t_type,
+                    status=status,
+                    email=email,
+                    phone=phone,
+                    address=address,
+                    current_user=self.current_user
+                )
+            self.accept()
+        except ValidationError as e:
+            self.error_label.setText(str(e))
+        except Exception as e:
+            self.error_label.setText(f"An unexpected error occurred: {str(e)}")

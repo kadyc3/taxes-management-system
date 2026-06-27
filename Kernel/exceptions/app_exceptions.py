@@ -1,21 +1,19 @@
-class AppError(Exception):
-    """
-    Base application exception.
-    Used for business-rule and validation errors.
-    """
-
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.message = message
-
-
-class ValidationError(AppError):
+class AppException(Exception):
+    """Base exception class for the Taxes Management System."""
     pass
 
-
-class NotFoundError(AppError):
+class ValidationError(AppException):
+    """Raised when data validation fails."""
     pass
 
+class AuthenticationError(AppException):
+    """Raised when user login or authentication fails."""
+    pass
 
-class AuthorizationError(AppError):
+class PermissionDeniedError(AppException):
+    """Raised when a user attempts an action not allowed by their role."""
+    pass
+
+class NotFoundError(AppException):
+    """Raised when a requested resource is not found."""
     pass

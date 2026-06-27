@@ -1,579 +1,471 @@
-"""
-GUI/pages/declaration_page.py
-
-Full CRUD interface for tax declaration management.
-Lives inside the DashboardWindow's QStackedWidget.
-"""
-
-from __future__ import annotations
-
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTableWidget, QTableWidgetItem, QPushButton,
-    QDialog, QFormLayout, QLineEdit, QComboBox,
-    QTextEdit, QDialogButtonBox, QDoubleSpinBox,
-    QSpinBox, QAbstractItemView, QInputDialog,
-)
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QHeaderView, QFrame, QFileDialog, QDialog
 from PyQt6.QtCore import Qt
-
-from openpyxl import Workbook
-from PyQt6.QtWidgets import QFileDialog
-
-from Kernel.models.declaration import Declaration
-from Kernel.services.declaration_service import DeclarationService
-from Kernel.services.taxpayer_service import TaxpayerService
-from Kernel.services.auth_service import AuthService
-from Kernel.exceptions.app_exceptions import AppError
-from GUI.widgets.search_bar import SearchBar
-from GUI.widgets.message_bar import MessageBar
-from GUI.widgets.confirm_dialog import confirm
-
-
-_TAX_TYPES = ["TVA", "IS", "IRPP", "RS", "TCL", "TFP", "FOPROLOS"]
-_STATUSES = ["draft", "submitted", "validated", "rejected"]
-
-_COLUMNS = [
-    ("ID",          "id",            50),
-    ("Reference",   "reference",    170),
-    ("Taxpayer",    "taxpayer_name", 200),
-    ("Tax Type",    "tax_rate",       80),
-    ("Period",      "period", 100),
-    ("Year",        "fiscal_year",    60),
-    ("Total Due",   "total_due",     110),
-    ("Status",      "status",         90),
-]
-
+from PyQt6.QtGui import QColor
+from ..widgets.search_bar import SearchBar
+from ..widgets.message_bar import MessageBar
+from ..dialogs.declaration_dialog import DeclarationDialog
+from ..dialogs.confirm_dialog import ConfirmDialog, RejectionDialog
+from Kernel.models.user import UserRole
+from Kernel.exceptions.app_exceptions import PermissionDeniedError, ValidationError
 
 class DeclarationPage(QWidget):
-    def __init__(
-        self,
-        declaration_service: DeclarationService,
-        taxpayer_service: TaxpayerService,
-        auth_service: AuthService,
-    ) -> None:
-        super().__init__()
-        self._svc = declaration_service
-        self._tp_svc = taxpayer_service
-        self._auth = auth_service
-        self._build_ui()
-        self.load_data()
-
-    # ------------------------------------------------------------------
-    # UI
-    # ------------------------------------------------------------------
-    def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-    
-        layout.setSpacing(16)
-
-        # Header
-        header_row = QHBoxLayout()
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
-        page_title = QLabel("Declarations")
-        page_title.setObjectName("PageTitle")
-        page_subtitle = QLabel("Manage tax declarations for all taxpayers")
-        page_subtitle.setObjectName("PageSubtitle")
-        title_col.addWidget(page_title)
-        title_col.addWidget(page_subtitle)
-        header_row.addLayout(title_col)
-        header_row.addStretch()
-
-        self._add_btn = QPushButton("＋  New Declaration")
-        self._add_btn.setMinimumHeight(36)
-        self._add_btn.setFixedWidth(160)
-        self._add_btn.clicked.connect(self._open_add_dialog)
-        header_row.addWidget(self._add_btn)
-        layout.addLayout(header_row)
-
-        self._msg = MessageBar()
-        layout.addWidget(self._msg)
-        #excel
-        
-        self._export_btn = QPushButton("⬇ Export Excel")
-        self._export_btn.setObjectName("SecondaryButton")
-        self._export_btn.setMinimumHeight(34)
-        self._export_btn.clicked.connect(self._export_excel)
-        layout.addWidget(self._export_btn)
-
-        # Search
-        self._search = SearchBar("Search by reference, taxpayer name, tax type…")
-        self._search.search_triggered.connect(self._on_search)
-        layout.addWidget(self._search)
-        
-        # Table
-        self._table = QTableWidget()
-        self._table.setColumnCount(len(_COLUMNS))
-        self._table.setHorizontalHeaderLabels([c[0] for c in _COLUMNS])
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setAlternatingRowColors(True)
-        self._table.verticalHeader().setVisible(False)
-        self._table.horizontalHeader().setStretchLastSection(True)
-        self._table.setMinimumHeight(300)
-
-        for i, (_, _, width) in enumerate(_COLUMNS):
-            self._table.setColumnWidth(i, width)
-        layout.addWidget(self._table, stretch=1)
-        self._table.itemSelectionChanged.connect(self._on_selection_changed)
-
-        # Action buttons
-        action_row = QHBoxLayout()
-        action_row.setSpacing(8)
-
-        self._edit_btn = QPushButton("✏  Edit")
-        self._edit_btn.setObjectName("SecondaryButton")
-        self._edit_btn.setMinimumHeight(34)
-        self._edit_btn.setEnabled(False)
-        self._edit_btn.clicked.connect(self._open_edit_dialog)
-
-        self._submit_btn = QPushButton("▶  Submit")
-        self._submit_btn.setObjectName("SecondaryButton")
-        self._submit_btn.setMinimumHeight(34)
-        self._submit_btn.setEnabled(False)
-        self._submit_btn.clicked.connect(self._submit_selected)
-
-        self._validate_btn = QPushButton("✔  Validate")
-        self._validate_btn.setMinimumHeight(34)
-        self._validate_btn.setEnabled(False)
-        self._validate_btn.clicked.connect(self._validate_selected)
-
-        self._reject_btn = QPushButton("✘  Reject")
-        self._reject_btn.setObjectName("DangerButton")
-        self._reject_btn.setMinimumHeight(34)
-        self._reject_btn.setEnabled(False)
-        self._reject_btn.clicked.connect(self._reject_selected)
-
-        self._delete_btn = QPushButton("🗑  Delete")
-        self._delete_btn.setObjectName("DangerButton")
-        self._delete_btn.setMinimumHeight(34)
-        self._delete_btn.setEnabled(False)
-        self._delete_btn.clicked.connect(self._delete_selected)
-
-        action_row.addStretch()
-        for btn in (
-            self._edit_btn, self._submit_btn,
-            self._validate_btn, self._reject_btn,
-            self._delete_btn,
-        ):
-            action_row.addWidget(btn)
-        layout.addLayout(action_row)
-
-        
-
-        # RBAC
-        #user = self._auth.current_user
-        #if user and not user.can_write():
-         #   self._add_btn.setVisible(False)
-        #if user and not user.is_admin():
-         #   self._validate_btn.setVisible(False)
-          #  self._reject_btn.setVisible(False)
-           # self._delete_btn.setVisible(False)
-
-    # ------------------------------------------------------------------
-    # Data
-    # ------------------------------------------------------------------
-    def load_data(self, declarations: list[Declaration] | None = None) -> None:
-        if declarations is None:
-            try:
-                declarations = self._svc.get_all()
-            except AppError as exc:
-                self._msg.show_error(str(exc))
-                return
-
-        self._table.setRowCount(0)
-
-        for row_idx, decl in enumerate(declarations):
-            self._table.insertRow(row_idx)
-
-            values = [
-                str(decl.id),
-                f"DEC-{decl.id}",
-                decl.taxpayer_name or str(decl.taxpayer_id),
-                str(decl.tax_rate),
-                str(decl.period),
-                str(decl.fiscal_year),
-                f"{decl.total_due:,.3f} TND",
-                str(decl.status).capitalize(),
-            ]
-
-            for col_idx, val in enumerate(values):
-                item = QTableWidgetItem(val)
-                item.setData(Qt.ItemDataRole.UserRole, decl.id)
-                self._table.setItem(row_idx, col_idx, item)
-
-        self._table.resizeRowsToContents()
-
-        self._table.setRowCount(0)
-        for row_idx, decl in enumerate(declarations):
-            self._table.insertRow(row_idx)
-            values = [
-                str(decl.id),
-                f"DEC-{decl.id}",
-                decl.taxpayer_name or str(decl.taxpayer_id),
-                decl.tax_rate,
-                decl.period,
-                str(decl.fiscal_year),
-                f"{decl.total_due:,.3f} TND",
-                str(decl.status).capitalize(),
-            ]
-            for col_idx, val in enumerate(values):
-                item = QTableWidgetItem(val)
-                item.setData(Qt.ItemDataRole.UserRole, decl.id)
-                self._table.setItem(row_idx, col_idx, item)
-        self._table.resizeRowsToContents()
-
-    # ------------------------------------------------------------------
-    # Selection
-    # ------------------------------------------------------------------
-    def _on_selection_changed(self) -> None:
-        has = bool(self._table.selectedItems())
-        user = self._auth.current_user
-        self._edit_btn.setEnabled(has and user.can_write())
-        self._submit_btn.setEnabled(has and user.can_write())
-        self._validate_btn.setEnabled(has and user.is_admin())
-        self._reject_btn.setEnabled(has and user.is_admin())
-        self._delete_btn.setEnabled(has and user.can_delete())
-
-
-    def _selected_id(self) -> int | None:
-        row = self._table.currentRow()
-        if row < 0:
-            return None
-
-        item = self._table.item(row, 0)  # ID column
-        if not item:
-            return None
-
-        return int(item.text())
-
-    # ------------------------------------------------------------------
-    # Search
-    # ------------------------------------------------------------------
-    def _on_search(self, query: str) -> None:
-        try:
-            results = self._svc.search(query)
-            self.load_data(results)
-        except AppError as exc:
-            self._msg.show_error(str(exc))
-
-    # ------------------------------------------------------------------
-    # CRUD
-    # ------------------------------------------------------------------
-    def _open_add_dialog(self) -> None:
-        taxpayers = self._tp_svc.get_all()
-        if not taxpayers:
-            self._msg.show_error("No taxpayers found. Create a taxpayer first.")
-            return
-        dialog = DeclarationFormDialog(
-            parent=self,
-            service=self._svc,
-            taxpayers=taxpayers,
-            declaration=None,
-        )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.load_data()
-            self._msg.show_success("Declaration created successfully.")
-
-    
-    def _open_edit_dialog(self) -> None:
-        decl_id = self._selected_id()
-        if decl_id is None:
-            self._msg.show_error("No declaration selected.")
-            return
-
-        try:
-            declaration = self._svc.get_by_id(decl_id)
-        except Exception as exc:
-            self._msg.show_error(str(exc))
-            return
-
-        taxpayers = self._tp_svc.get_all()
-
-        dialog = DeclarationFormDialog(
-            parent=self,
-            service=self._svc,
-            taxpayers=taxpayers,
-            declaration=declaration,
-        )
-
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.load_data()
-            self._msg.show_success("Declaration updated successfully.")
-
-    def _submit_selected(self) -> None:
-        decl_id = self._selected_id()
-        if decl_id is None:
-            return
-        try:
-            self._svc.submit(decl_id, user_id=self._auth.current_user.id)
-            self.load_data()
-            self._msg.show_success("Declaration submitted.")
-        except AppError as exc:
-            self._msg.show_error(str(exc))
-
-    def _validate_selected(self) -> None:
-        decl_id = self._selected_id()
-        if decl_id is None:
-            return
-        try:
-            self._svc.validate_declaration(decl_id, user_id=self._auth.current_user.id)
-            self.load_data()
-            self._msg.show_success("Declaration validated.")
-        except AppError as exc:
-            self._msg.show_error(str(exc))
-
-    def _reject_selected(self) -> None:
-        decl_id = self._selected_id()
-        if decl_id is None:
-            return
-        reason, ok = QInputDialog.getText(self, "Reject Declaration", "Rejection reason:")
-        if not ok or not reason.strip():
-            return
-        try:
-            self._svc.reject_declaration(decl_id, reason.strip(), user_id=self._auth.current_user.id)
-            self.load_data()
-            self._msg.show_success("Declaration rejected.")
-        except AppError as exc:
-            self._msg.show_error(str(exc))
-
-    def _delete_selected(self) -> None:
-        decl_id = self._selected_id()
-        if decl_id is None:
-            return
-        if not confirm(self, "Delete Declaration", "Delete this declaration permanently?"):
-            return
-        try:
-            self._svc.delete(decl_id, user_id=self._auth.current_user.id)
-            self.load_data()
-            self._msg.show_success("Declaration deleted.")
-        except AppError as exc:
-            self._msg.show_error(str(exc))
-    def _export_excel(self):
-        try:
-            declarations = self._svc.get_all()
-
-            path, _ = QFileDialog.getSaveFileName(
-                self,
-                "Export Declarations",
-                "declarations.xlsx",
-                "Excel Files (*.xlsx)"
-            )
-
-            if not path:
-                return
-
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Declarations"
-
-            # Header row
-            ws.append([
-                "ID",
-                "Reference",
-                "Taxpayer",
-                "Tax Type",
-                "Period",
-                "Year",
-                "Total Due",
-                "Status"
-            ])
-
-            # Data rows
-            for d in declarations:
-                ws.append([
-                    d.id,
-                    f"DEC-{d.id}",
-                    d.taxpayer_name,
-                    d.tax_rate,
-                    d.period,
-                    d.fiscal_year,
-                    float(d.total_due),
-                    d.status
-                ])
-
-            # Auto column sizing (simple but useful)
-            for col in ws.columns:
-                max_length = 0
-                col_letter = col[0].column_letter
-                for cell in col:
-                    if cell.value:
-                        max_length = max(max_length, len(str(cell.value)))
-                ws.column_dimensions[col_letter].width = max_length + 2
-
-            wb.save(path)
-
-            self._msg.show_success("Excel exported successfully!")
-
-        except Exception as e:
-            self._msg.show_error(f"Export failed: {str(e)}")
-    def _fill_table(self, taxpayers):
-        self.table.setRowCount(0)
-
-        for i, t in enumerate(taxpayers):
-            self.table.insertRow(i)
-
-            self.table.setItem(i, 0, QTableWidgetItem(str(t.id)))
-            self.table.setItem(i, 1, QTableWidgetItem(t.name))
-            self.table.setItem(i, 2, QTableWidgetItem(t.tax_id))
-            self.table.setItem(i, 3, QTableWidgetItem(t.email or "—"))
-            self.table.setItem(i, 4, QTableWidgetItem(t.phone or "—"))
-            self.table.setItem(i, 5, QTableWidgetItem(t.address or "—"))
-# ======================================================================
-# Declaration Form Dialog
-# ======================================================================
-
-class DeclarationFormDialog(QDialog):
-    def __init__(
-        self,
-        parent: QWidget,
-        service: DeclarationService,
-        taxpayers,
-        declaration: Declaration | None,
-    ) -> None:
+    def __init__(self, declaration_service, taxpayer_service, current_user, parent=None):
         super().__init__(parent)
-        self._svc = service
-        self._taxpayers = taxpayers
-        self._declaration = declaration
-        self._is_edit = declaration is not None
-        self.setWindowTitle("Edit Declaration" if self._is_edit else "New Declaration")
-        self.setModal(True)
-        self.setMinimumWidth(480)
-        self._build_ui()
-        if self._is_edit:
-            self._populate()
+        self.declaration_service = declaration_service
+        self.taxpayer_service = taxpayer_service
+        self.current_user = current_user
+        
+        # Pagination state
+        self.all_declarations = []
+        self.current_page = 1
+        self.page_size = 10
 
-    def _build_ui(self) -> None:
+        # Main Layout
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
 
-        self._msg = MessageBar()
-        layout.addWidget(self._msg)
+        # Header area
+        header_hbox = QHBoxLayout()
+        title = QLabel("Declarations Registry", self)
+        title.setObjectName("HeaderTitle")
+        header_hbox.addWidget(title)
 
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.setSpacing(10)
+        self.message_bar = MessageBar(self)
+        header_hbox.addWidget(self.message_bar, 1)
+        layout.addLayout(header_hbox)
 
-        # Taxpayer dropdown
-        self._taxpayer_combo = QComboBox()
-        for tp in self._taxpayers:
-            self._taxpayer_combo.addItem(f"{tp.name} ({tp.tax_id})", userData=tp.id)
+        # Toolbar Card Frame
+        toolbar_frame = QFrame(self)
+        toolbar_frame.setObjectName("CardFrame")
+        toolbar_frame.setProperty("class", "CardFrame")
+        toolbar_layout = QVBoxLayout(toolbar_frame)
+        toolbar_layout.setContentsMargins(15, 12, 15, 12)
+        toolbar_layout.setSpacing(10)
 
-        self._tax_type_combo = QComboBox()
-        self._tax_type_combo.addItems(_TAX_TYPES)
+        # Top row: Search and Filter
+        row_1 = QHBoxLayout()
+        self.search_bar = SearchBar("Search reference, taxpayer, type...", toolbar_frame)
+        self.search_bar.textChanged.connect(self.on_filter_changed)
+        row_1.addWidget(self.search_bar, 2)
 
-        self._fiscal_year_spin = QSpinBox()
-        self._fiscal_year_spin.setRange(1990, 2100)
-        self._fiscal_year_spin.setValue(2024)
+        self.status_filter = QComboBox(toolbar_frame)
+        self.status_filter.addItems(["All Statuses", "Draft", "Submitted", "Validated", "Rejected"])
+        self.status_filter.currentIndexChanged.connect(self.on_filter_changed)
+        row_1.addWidget(self.status_filter, 1)
+        
+        row_1.addStretch(1)
 
-        self._fiscal_period_input = QLineEdit()
-        self._fiscal_period_input.setPlaceholderText("e.g. T1-2024, M03-2024, 2024")
+        # Action Buttons
+        self.excel_export_btn = QPushButton("Export Excel (.xlsx)", toolbar_frame)
+        self.excel_export_btn.clicked.connect(self.on_export_excel)
+        row_1.addWidget(self.excel_export_btn)
 
-        # GROSS
-        self._gross_spin = QDoubleSpinBox()
-        self._gross_spin.setRange(0, 999_999_999)
-        self._gross_spin.setDecimals(3)
-        self._gross_spin.setSuffix(" TND")
-        self._gross_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
-        self._gross_spin.setMinimumHeight(30)
-        self._gross_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._gross_spin.valueChanged.connect(self._recompute)
+        self.csv_export_btn = QPushButton("Export CSV", toolbar_frame)
+        self.csv_export_btn.clicked.connect(self.on_export_csv)
+        row_1.addWidget(self.csv_export_btn)
 
-        # DEDUCTIONS
-        self._deductions_spin = QDoubleSpinBox()
-        self._deductions_spin.setRange(0, 999_999_999)
-        self._deductions_spin.setDecimals(3)
-        self._deductions_spin.setSuffix(" TND")
-        self._deductions_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
-        self._deductions_spin.setMinimumHeight(30)
-        self._deductions_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._deductions_spin.valueChanged.connect(self._recompute)
+        toolbar_layout.addLayout(row_1)
 
-        # PENALTIES
-        self._penalties_spin = QDoubleSpinBox()
-        self._penalties_spin.setRange(0, 999_999_999)
-        self._penalties_spin.setDecimals(3)
-        self._penalties_spin.setSuffix(" TND")
-        self._penalties_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
-        self._penalties_spin.setMinimumHeight(30)
-        self._penalties_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._penalties_spin.valueChanged.connect(self._recompute)
+        # Bottom row: CRUD and Workflow Actions
+        row_2 = QHBoxLayout()
+        
+        self.add_btn = QPushButton("Add Declaration", toolbar_frame)
+        self.add_btn.setObjectName("PrimaryButton")
+        self.add_btn.clicked.connect(self.on_add_clicked)
+        row_2.addWidget(self.add_btn)
 
-        self._total_due_label = QLabel("0.000 TND")
-        self._total_due_label.setStyleSheet("font-weight: bold; color: #8B0000;")
+        self.edit_btn = QPushButton("Edit", toolbar_frame)
+        self.edit_btn.clicked.connect(self.on_edit_clicked)
+        row_2.addWidget(self.edit_btn)
 
-        self._status_combo = QComboBox()
-        self._status_combo.addItems(_STATUSES)
+        self.submit_btn = QPushButton("Submit for Validation", toolbar_frame)
+        self.submit_btn.clicked.connect(self.on_submit_clicked)
+        row_2.addWidget(self.submit_btn)
 
-        self._notes_input = QTextEdit()
-        self._notes_input.setMaximumHeight(60)
-        self._notes_input.setPlaceholderText("Optional notes…")
+        # Admin workflow separators
+        self.validate_btn = QPushButton("Validate", toolbar_frame)
+        self.validate_btn.setObjectName("SuccessButton")
+        self.validate_btn.clicked.connect(self.on_validate_clicked)
+        row_2.addWidget(self.validate_btn)
 
-        form.addRow("Taxpayer *", self._taxpayer_combo)
-        form.addRow("Tax Type *", self._tax_type_combo)
-        form.addRow("Fiscal Year *", self._fiscal_year_spin)
-        form.addRow("Fiscal Period *", self._fiscal_period_input)
-        form.addRow("Gross Amount", self._gross_spin)
-        form.addRow("Deductions", self._deductions_spin)
-        form.addRow("Penalties", self._penalties_spin)
-        form.addRow("Total Due", self._total_due_label)
-        form.addRow("Status", self._status_combo)
-        form.addRow("Notes", self._notes_input)
-        layout.addLayout(form)
+        self.reject_btn = QPushButton("Reject", toolbar_frame)
+        self.reject_btn.setObjectName("WarningButton")
+        self.reject_btn.clicked.connect(self.on_reject_clicked)
+        row_2.addWidget(self.reject_btn)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save |
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._save)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self.delete_btn = QPushButton("Delete", toolbar_frame)
+        self.delete_btn.setObjectName("DangerButton")
+        self.delete_btn.clicked.connect(self.on_delete_clicked)
+        row_2.addWidget(self.delete_btn)
 
-    def _populate(self) -> None:
-        decl = self._declaration
-        for i in range(self._taxpayer_combo.count()):
-            if self._taxpayer_combo.itemData(i) == decl.taxpayer_id:
-                self._taxpayer_combo.setCurrentIndex(i)
-                break
-        idx = self._tax_type_combo.findText(decl.tax_rate)
-        if idx >= 0:
-            self._tax_type_combo.setCurrentIndex(idx)
-        self._fiscal_year_spin.setValue(decl.fiscal_year)
-        self._fiscal_period_input.setText(decl.period)
-        self._gross_spin.setValue(decl.gross_amount)
-        self._penalties_spin.setValue(decl.penalties)
-        idx = self._status_combo.findText(decl.status)
-        if idx >= 0:
-            self._status_combo.setCurrentIndex(idx)
-        self._notes_input.setPlainText(decl.notes or "")
-        self._recompute()
+        row_2.addStretch()
+        toolbar_layout.addLayout(row_2)
 
-    def _recompute(self) -> None:
-        gross = self._gross_spin.value()
-        ded = self._deductions_spin.value()
-        pen = self._penalties_spin.value()
-        total = (gross - ded) + pen
-        self._total_due_label.setText(f"{total:,.3f} TND")
+        layout.addWidget(toolbar_frame)
 
-    def _save(self) -> None:
-        self._msg.hide()
-        data = {
-        "id": self._declaration.id if self._is_edit else None,
-        "taxpayer_id": self._taxpayer_combo.currentData(),
-        "declaration_type": self._tax_type_combo.currentText(),
-        "fiscal_year": self._fiscal_year_spin.value(),
-        "period": self._fiscal_period_input.text(),
-        "gross_amount": self._gross_spin.value(),
-        "tax_rate": self._gross_spin.value(),
-        "penalties": self._penalties_spin.value(),
-        "status": self._status_combo.currentText(),
-        "notes": self._notes_input.toPlainText(),
-    }
+        # Declarations Table
+        self.table = QTableWidget(self)
+        self.table.setColumnCount(12)
+        self.table.setHorizontalHeaderLabels([
+            "Reference", "Taxpayer", "Type", "Year", "Period",
+            "Gross", "Deductions", "Penalties", "Total Tax", "Status",
+            "Filed Date", "Rejection Reason"
+        ])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Taxpayer name stretches
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.doubleClicked.connect(self.on_edit_clicked)
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
+        layout.addWidget(self.table)
+
+        # Pagination controls
+        pagination_layout = QHBoxLayout()
+        pagination_layout.addStretch()
+
+        self.prev_btn = QPushButton("◀ Prev", self)
+        self.prev_btn.setFixedWidth(80)
+        self.prev_btn.clicked.connect(self.on_prev_page)
+        pagination_layout.addWidget(self.prev_btn)
+
+        self.page_label = QLabel("Page 1 of 1", self)
+        self.page_label.setStyleSheet("font-weight: bold; color: #94a3b8; padding: 0px 10px;")
+        pagination_layout.addWidget(self.page_label)
+
+        self.next_btn = QPushButton("Next ▶", self)
+        self.next_btn.setFixedWidth(80)
+        self.next_btn.clicked.connect(self.on_next_page)
+        pagination_layout.addWidget(self.next_btn)
+
+        pagination_layout.addStretch()
+        layout.addLayout(pagination_layout)
+
+        # Configure visibility
+        self.apply_role_permissions()
+        
+        # Load Initial Data
+        self.refresh_list()
+
+    def apply_role_permissions(self):
+        role = self.current_user.role
+        if role == UserRole.ADMIN:
+            self.add_btn.setVisible(True)
+            self.edit_btn.setVisible(True)
+            self.submit_btn.setVisible(True)
+            self.validate_btn.setVisible(True)
+            self.reject_btn.setVisible(True)
+            self.delete_btn.setVisible(True)
+        elif role == UserRole.EDITOR:
+            self.add_btn.setVisible(True)
+            self.edit_btn.setVisible(True)
+            self.submit_btn.setVisible(True)
+            self.validate_btn.setVisible(False)
+            self.reject_btn.setVisible(False)
+            self.delete_btn.setVisible(False)
+        else: # USER
+            self.add_btn.setVisible(False)
+            self.edit_btn.setVisible(False)
+            self.submit_btn.setVisible(False)
+            self.validate_btn.setVisible(False)
+            self.reject_btn.setVisible(False)
+            self.delete_btn.setVisible(False)
+
+    def refresh_list(self):
+        # Fetch status filter value
+        status_text = self.status_filter.currentText()
+        status_val = None if status_text == "All Statuses" else status_text
+
+        query = self.search_bar.text().strip()
+
+        # Call service to find declarations
         try:
-            if self._is_edit:
-                self._svc.update(self._declaration.id, data)
+            self.all_declarations = self.declaration_service.search_declarations(query, status_val)
+            
+            # Setup Autocomplete suggestions list (References & Taxpayers & Types)
+            autocomplete_terms = []
+            for d in self.all_declarations:
+                if d.reference_number not in autocomplete_terms:
+                    autocomplete_terms.append(d.reference_number)
+                if d.taxpayer_name and d.taxpayer_name not in autocomplete_terms:
+                    autocomplete_terms.append(d.taxpayer_name)
+                if d.declaration_type not in autocomplete_terms:
+                    autocomplete_terms.append(d.declaration_type)
+            self.search_bar.set_autocomplete_list(autocomplete_terms)
+
+            # Reset page
+            self.current_page = 1
+            self.render_table_page()
+            self.on_selection_changed() # Force action button updates
+        except Exception as e:
+            self.message_bar.show_message(f"Error fetching declarations: {str(e)}", "error")
+
+    def render_table_page(self):
+        total_items = len(self.all_declarations)
+        total_pages = max(1, (total_items + self.page_size - 1) // self.page_size)
+
+        if self.current_page > total_pages:
+            self.current_page = total_pages
+        if self.current_page < 1:
+            self.current_page = 1
+
+        self.page_label.setText(f"Page {self.current_page} of {total_pages}")
+        self.prev_btn.setEnabled(self.current_page > 1)
+        self.next_btn.setEnabled(self.current_page < total_pages)
+
+        # Slice data
+        start_idx = (self.current_page - 1) * self.page_size
+        end_idx = start_idx + self.page_size
+        page_items = self.all_declarations[start_idx:end_idx]
+
+        self.table.setRowCount(0)
+        
+        for idx, d in enumerate(page_items):
+            self.table.insertRow(idx)
+            
+            # Reference with database ID stored in userData
+            ref_item = QTableWidgetItem(d.reference_number)
+            ref_item.setData(Qt.ItemDataRole.UserRole, d.id)
+            ref_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            yr_item = QTableWidgetItem(str(d.fiscal_year))
+            yr_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            per_item = QTableWidgetItem(d.period)
+            per_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # Currency Formats
+            gross_item = QTableWidgetItem(f"$ {d.gross_amount:,.2f}")
+            gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            
+            ded_item = QTableWidgetItem(f"$ {d.deductions:,.2f}")
+            ded_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            
+            pen_item = QTableWidgetItem(f"$ {d.penalties:,.2f}")
+            pen_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            
+            due_item = QTableWidgetItem(f"$ {d.total_due:,.2f}")
+            due_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            due_item.setStyleSheet("font-weight: bold;")
+            
+            # Status items with status colors
+            status_item = QTableWidgetItem(d.status.value)
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if d.status.value == "Validated":
+                status_item.setForeground(QColor("#34d399"))  # Green
+            elif d.status.value == "Submitted":
+                status_item.setForeground(QColor("#fbbf24"))  # Orange
+            elif d.status.value == "Rejected":
+                status_item.setForeground(QColor("#f87171"))  # Red
             else:
-                self._svc.create(data)
-            self.accept()
-        except AppError as exc:
-            self._msg.show_error(str(exc))
+                status_item.setForeground(QColor("#94a3b8"))  # Slate Gray (Draft)
+
+            filed_str = d.filed_date.strftime("%Y-%m-%d %H:%M")
+
+            self.table.setItem(idx, 0, ref_item)
+            self.table.setItem(idx, 1, QTableWidgetItem(d.taxpayer_name or f"Taxpayer #{d.taxpayer_id}"))
+            self.table.setItem(idx, 2, QTableWidgetItem(d.declaration_type))
+            self.table.setItem(idx, 3, yr_item)
+            self.table.setItem(idx, 4, per_item)
+            self.table.setItem(idx, 5, gross_item)
+            self.table.setItem(idx, 6, ded_item)
+            self.table.setItem(idx, 7, pen_item)
+            self.table.setItem(idx, 8, due_item)
+            self.table.setItem(idx, 9, status_item)
+            self.table.setItem(idx, 10, QTableWidgetItem(filed_str))
+            self.table.setItem(idx, 11, QTableWidgetItem(d.rejection_reason or ""))
+
+        self.table.resizeRowsToContents()
+
+    def on_filter_changed(self):
+        self.refresh_list()
+
+    def on_prev_page(self):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.render_table_page()
+
+    def on_next_page(self):
+        total_items = len(self.all_declarations)
+        total_pages = (total_items + self.page_size - 1) // self.page_size
+        if self.current_page < total_pages:
+            self.current_page += 1
+            self.render_table_page()
+
+    def get_selected_declaration(self) -> tuple[int, str]:
+        """Returns (id, status_string) for the selected row."""
+        selected_ranges = self.table.selectedRanges()
+        if not selected_ranges:
+            return None, None
+        row = selected_ranges[0].topRow()
+        ref_item = self.table.item(row, 0)
+        status_item = self.table.item(row, 9)
+        if ref_item and status_item:
+            return ref_item.data(Qt.ItemDataRole.UserRole), status_item.text()
+        return None, None
+
+    def on_selection_changed(self):
+        # Update button enable states depending on the status of selected record
+        dec_id, status = self.get_selected_declaration()
+        role = self.current_user.role
+
+        if not dec_id:
+            self.edit_btn.setEnabled(False)
+            self.submit_btn.setEnabled(False)
+            self.validate_btn.setEnabled(False)
+            self.reject_btn.setEnabled(False)
+            self.delete_btn.setEnabled(False)
+            return
+
+        # Delete is Admin-only, always enabled if row selected and role is Admin
+        self.delete_btn.setEnabled(role == UserRole.ADMIN)
+
+        # Edit is allowed if not validated
+        self.edit_btn.setEnabled(role in (UserRole.ADMIN, UserRole.EDITOR) and status != "Validated")
+
+        # Submit is allowed if Draft or Rejected
+        self.submit_btn.setEnabled(role in (UserRole.ADMIN, UserRole.EDITOR) and status in ("Draft", "Rejected"))
+
+        # Validate/Reject are Admin-only and allowed if status is Submitted or Draft (or Rejected to recheck)
+        is_admin = (role == UserRole.ADMIN)
+        self.validate_btn.setEnabled(is_admin and status != "Validated")
+        self.reject_btn.setEnabled(is_admin and status != "Rejected" and status != "Validated")
+
+    def on_add_clicked(self):
+        if self.current_user.role not in (UserRole.ADMIN, UserRole.EDITOR):
+            self.message_bar.show_message("Permission Denied: Only Admins or Editors can add declarations.", "error")
+            return
+
+        # Verify active taxpayers exist first
+        taxpayers = self.taxpayer_service.search_taxpayers()
+        if not taxpayers:
+            self.message_bar.show_message("No taxpayers exist. Please add a taxpayer before filing a declaration.", "warning")
+            return
+
+        dialog = DeclarationDialog(self.declaration_service, self.taxpayer_service, self.current_user, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.message_bar.show_message("Declaration draft created successfully!", "success")
+            self.refresh_list()
+
+    def on_edit_clicked(self):
+        if self.current_user.role not in (UserRole.ADMIN, UserRole.EDITOR):
+            return
+
+        dec_id, status = self.get_selected_declaration()
+        if not dec_id:
+            self.message_bar.show_message("Please select a declaration to edit.", "warning")
+            return
+
+        if status == "Validated":
+            self.message_bar.show_message("Validated declarations are locked and cannot be edited.", "warning")
+            return
+
+        try:
+            declaration = self.declaration_service.get_declaration_by_id(dec_id)
+            dialog = DeclarationDialog(self.declaration_service, self.taxpayer_service, self.current_user, declaration, parent=self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.message_bar.show_message("Declaration updated successfully!", "success")
+                self.refresh_list()
+        except Exception as e:
+            self.message_bar.show_message(f"Error loading declaration: {str(e)}", "error")
+
+    def on_submit_clicked(self):
+        dec_id, _ = self.get_selected_declaration()
+        if not dec_id:
+            return
+
+        try:
+            self.declaration_service.submit_declaration(dec_id, self.current_user)
+            self.message_bar.show_message("Declaration submitted for validation successfully.", "success")
+            self.refresh_list()
+        except Exception as e:
+            self.message_bar.show_message(f"Submission failed: {str(e)}", "error")
+
+    def on_validate_clicked(self):
+        if self.current_user.role != UserRole.ADMIN:
+            return
+            
+        dec_id, _ = self.get_selected_declaration()
+        if not dec_id:
+            return
+
+        try:
+            self.declaration_service.validate_declaration(dec_id, self.current_user)
+            self.message_bar.show_message("Declaration validated and locked successfully.", "success")
+            self.refresh_list()
+        except Exception as e:
+            self.message_bar.show_message(f"Validation failed: {str(e)}", "error")
+
+    def on_reject_clicked(self):
+        if self.current_user.role != UserRole.ADMIN:
+            return
+
+        dec_id, _ = self.get_selected_declaration()
+        if not dec_id:
+            return
+
+        dialog = RejectionDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                self.declaration_service.reject_declaration(dec_id, dialog.rejection_reason, self.current_user)
+                self.message_bar.show_message("Declaration status updated to Rejected.", "success")
+                self.refresh_list()
+            except Exception as e:
+                self.message_bar.show_message(f"Rejection failed: {str(e)}", "error")
+
+    def on_delete_clicked(self):
+        if self.current_user.role != UserRole.ADMIN:
+            return
+
+        dec_id, _ = self.get_selected_declaration()
+        if not dec_id:
+            return
+
+        try:
+            declaration = self.declaration_service.get_declaration_by_id(dec_id)
+            confirm = ConfirmDialog(
+                "Delete Declaration",
+                f"Are you sure you want to delete declaration '{declaration.reference_number}'?\nThis action cannot be undone.",
+                self
+            )
+            if confirm.exec() == QDialog.DialogCode.Accepted:
+                self.declaration_service.delete_declaration(dec_id, self.current_user)
+                self.message_bar.show_message("Declaration record deleted successfully.", "success")
+                self.refresh_list()
+        except Exception as e:
+            self.message_bar.show_message(f"Delete failed: {str(e)}", "error")
+
+    def on_export_excel(self):
+        if not self.all_declarations:
+            self.message_bar.show_message("No data available to export.", "warning")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Declarations to Excel", "declarations_export.xlsx", "Excel Files (*.xlsx)"
+        )
+        if not file_path:
+            return
+
+        try:
+            self.declaration_service.export_to_excel(self.all_declarations, file_path)
+            self.message_bar.show_message(f"Declarations exported successfully to {file_path}", "success")
+        except Exception as e:
+            self.message_bar.show_message(f"Excel export failed: {str(e)}", "error")
+
+    def on_export_csv(self):
+        if not self.all_declarations:
+            self.message_bar.show_message("No data available to export.", "warning")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Declarations to CSV", "declarations_export.csv", "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+
+        try:
+            self.declaration_service.export_to_csv(self.all_declarations, file_path)
+            self.message_bar.show_message(f"Declarations exported successfully to {file_path}", "success")
+        except Exception as e:
+            self.message_bar.show_message(f"CSV export failed: {str(e)}", "error")

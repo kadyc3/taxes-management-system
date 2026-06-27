@@ -1,43 +1,28 @@
 import sqlite3
-from pathlib import Path
-from typing import Optional
-
+import os
+import threading
 
 class DatabaseConnection:
-    """Manages the SQLite connection."""
-
-    _instance: Optional["DatabaseConnection"] = None
-    _db_path: Path = Path("taxadmin.db")
-
-    def __init__(self, db_path: Optional[Path] = None) -> None:
-        if db_path:
-            self._db_path = db_path
-        self._connection: Optional[sqlite3.Connection] = None
+    _db_path: str = None
+    _lock = threading.Lock()
 
     @classmethod
-    def get_instance(cls) -> "DatabaseConnection":
-        if cls._instance is None:
-            cls._instance = DatabaseConnection()
-        return cls._instance
+    def initialize(cls, db_path: str):
+        with cls._lock:
+            cls._db_path = db_path
 
-    def connect(self) -> sqlite3.Connection:
-        if self._connection is None:
-            self._connection = sqlite3.connect(
-                str(self._db_path),
-                check_same_thread=False,
-            )
-            self._connection.row_factory = sqlite3.Row
-            self._connection.execute("PRAGMA foreign_keys = ON")
-            self._connection.execute("PRAGMA journal_mode = WAL")
-        return self._connection
+    @classmethod
+    def get_connection(cls) -> sqlite3.Connection:
+        with cls._lock:
+            if cls._db_path is None:
+                # Default path if not initialized
+                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                cls._db_path = os.path.join(base_dir, "taxes.db")
 
-    def close(self) -> None:
-        if self._connection:
-            self._connection.close()
-            self._connection = None
+        # Ensure parent directories exist
+        os.makedirs(os.path.dirname(os.path.abspath(cls._db_path)), exist_ok=True)
 
-    def __enter__(self) -> sqlite3.Connection:
-        return self.connect()
-
-    def __exit__(self, *_) -> None:
-        pass
+        conn = sqlite3.connect(cls._db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        return conn

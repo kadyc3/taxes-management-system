@@ -1,22 +1,17 @@
-import sqlite3
+from Infrastructure.database.connection import get_connection
 
-conn = sqlite3.connect("taxes.db")
+conn = get_connection()
 cursor = conn.cursor()
 
 cursor.execute("""
-INSERT INTO users
-(username, full_name, email, password_hash, role, is_active)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO users (username, password, role)
+VALUES (?, ?, ?)
 """, (
     "admin",
-    "System Admin",
-    "admin@test.com",
     "admin123",
-    "admin",
-    1
+    "admin"
 ))
 
 conn.commit()
-conn.close()
 
-print("Seed completed")
+print("Admin user created.")

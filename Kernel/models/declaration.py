@@ -1,39 +1,34 @@
 from dataclasses import dataclass
 from enum import Enum
-from datetime import date
+from datetime import datetime
+from typing import Optional
 
-
-class DeclarationStatus(str, Enum):
+class DeclarationStatus(Enum):
     DRAFT = "Draft"
     SUBMITTED = "Submitted"
     VALIDATED = "Validated"
     REJECTED = "Rejected"
 
-
-class DeclarationType(str, Enum):
-    VAT = "VAT"
-    INCOME_TAX = "Income Tax"
-    CORPORATE = "Corporate"
-    WITHHOLDING = "Withholding"
-
+    @classmethod
+    def from_str(cls, value: str) -> "DeclarationStatus":
+        for member in cls:
+            if member.value.lower() == value.lower():
+                return member
+        return cls.DRAFT
 
 @dataclass
 class Declaration:
-    number: str
-    taxpayer: str
-    amount: float
+    id: Optional[int]
+    taxpayer_id: int
+    reference_number: str
+    declaration_type: str
+    fiscal_year: int
+    period: str
+    gross_amount: float
+    deductions: float
+    penalties: float
+    total_due: float
     status: DeclarationStatus
-    date: str
-    declaration_type: DeclarationType
-    notes: str = ""
-
-    @staticmethod
-    def empty() -> "Declaration":
-        return Declaration(
-            number="",
-            taxpayer="",
-            amount=0.0,
-            status=DeclarationStatus.DRAFT,
-            date=date.today().isoformat(),
-            declaration_type=DeclarationType.VAT,
-        )
+    filed_date: datetime
+    rejection_reason: Optional[str] = None
+    taxpayer_name: Optional[str] = None  # Helper for display in UI tables

@@ -1,100 +1,150 @@
-from typing import List, Optional
-from Infrastructure.database.connection import DatabaseConnection
-from Kernel.models.taxpayer import Taxpayer, TaxpayerStatus, TaxpayerType
-
+import sqlite3
+from typing import Optional, Dict, Any, List
+from ..database.connection import DatabaseConnection
 
 class TaxpayerRepository:
-    def __init__(self) -> None:
-        self._db = DatabaseConnection.get_instance()
+    def __init__(self):
+        pass
 
-    def _row_to_taxpayer(self, row) -> Taxpayer:
-        return Taxpayer(
-            id=row["id"],
-            name=row["name"],
-            email=row["email"],
-            phone=row["phone"],
-            status=TaxpayerStatus(row["status"]),
-            taxpayer_type=TaxpayerType(row["taxpayer_type"]),
-            registration_date=row["registration_date"],
-            address=row["address"] or "",
-            notes=row["notes"] or "",
-        )
+    def get_by_id(self, taxpayer_id: int) -> Optional[Dict[str, Any]]:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT id, nin, full_name, taxpayer_type, status, email, phone, address, registration_date FROM taxpayers WHERE id = ?",
+                (taxpayer_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+        finally:
+            conn.close()
 
-    def get_all(self) -> List[Taxpayer]:
-        conn = self._db.connect()
-        rows = conn.execute(
-            "SELECT * FROM taxpayers ORDER BY registration_date DESC"
-        ).fetchall()
-        return [self._row_to_taxpayer(r) for r in rows]
+    def get_by_nin(self, nin: str) -> Optional[Dict[str, Any]]:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT id, nin, full_name, taxpayer_type, status, email, phone, address, registration_date FROM taxpayers WHERE nin = ?",
+                (nin,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+        finally:
+            conn.close()
 
-    def get_by_id(self, taxpayer_id: str) -> Optional[Taxpayer]:
-        conn = self._db.connect()
-        row = conn.execute(
-            "SELECT * FROM taxpayers WHERE id = ?", (taxpayer_id,)
-        ).fetchone()
-        return self._row_to_taxpayer(row) if row else None
+    def create(self, data: Dict[str, Any]) -> int:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO taxpayers (nin, full_name, taxpayer_type, status, email, phone, address, registration_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    data["nin"],
+                    data["full_name"],
+                    data["taxpayer_type"],
+                    data["status"],
+                    data.get("email"),
+                    data.get("phone"),
+                    data.get("address"),
+                    data["registration_date"]
+                )
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.Error as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
 
-    def search(
-        self,
-        query: str = "",
-        status: Optional[str] = None,
-        taxpayer_type: Optional[str] = None,
-    ) -> List[Taxpayer]:
-        conn = self._db.connect()
-        sql = "SELECT * FROM taxpayers WHERE 1=1"
-        params: list = []
-        if query:
-            sql += " AND (name LIKE ? OR email LIKE ? OR id LIKE ?)"
-            like = f"%{query}%"
-            params += [like, like, like]
-        if status and status != "all":
-            sql += " AND status = ?"
-            params.append(status)
-        if taxpayer_type and taxpayer_type != "all":
-            sql += " AND taxpayer_type = ?"
-            params.append(taxpayer_type)
-        sql += " ORDER BY registration_date DESC"
-        rows = conn.execute(sql, params).fetchall()
-        return [self._row_to_taxpayer(r) for r in rows]
+    def update(self, taxpayer_id: int, data: Dict[str, Any]) -> bool:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE taxpayers
+                SET nin = ?, full_name = ?, taxpayer_type = ?, status = ?, email = ?, phone = ?, address = ?
+                WHERE id = ?
+                """,
+                (
+                    data["nin"],
+                    data["full_name"],
+                    data["taxpayer_type"],
+                    data["status"],
+                    data.get("email"),
+                    data.get("phone"),
+                    data.get("address"),
+                    taxpayer_id
+                )
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
 
-    def create(self, taxpayer: Taxpayer) -> None:
-        conn = self._db.connect()
-        conn.execute(
-            """INSERT INTO taxpayers
-               (id, name, email, phone, status, taxpayer_type, registration_date, address, notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                taxpayer.id, taxpayer.name, taxpayer.email, taxpayer.phone,
-                taxpayer.status.value, taxpayer.taxpayer_type.value,
-                taxpayer.registration_date, taxpayer.address, taxpayer.notes,
-            ),
-        )
-        conn.commit()
+    def delete(self, taxpayer_id: int) -> bool:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM taxpayers WHERE id = ?", (taxpayer_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
 
-    def update(self, taxpayer: Taxpayer) -> None:
-        conn = self._db.connect()
-        conn.execute(
-            """UPDATE taxpayers SET
-               name=?, email=?, phone=?, status=?, taxpayer_type=?,
-               registration_date=?, address=?, notes=?
-               WHERE id=?""",
-            (
-                taxpayer.name, taxpayer.email, taxpayer.phone,
-                taxpayer.status.value, taxpayer.taxpayer_type.value,
-                taxpayer.registration_date, taxpayer.address, taxpayer.notes,
-                taxpayer.id,
-            ),
-        )
-        conn.commit()
+    def search(self, query: str = "", status_filter: Optional[str] = None, type_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            sql = "SELECT id, nin, full_name, taxpayer_type, status, email, phone, address, registration_date FROM taxpayers WHERE 1=1"
+            params = []
 
-    def delete(self, taxpayer_id: str) -> None:
-        conn = self._db.connect()
-        conn.execute("DELETE FROM taxpayers WHERE id = ?", (taxpayer_id,))
-        conn.commit()
+            if query:
+                sql += " AND (nin LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? OR address LIKE ?)"
+                like_query = f"%{query}%"
+                params.extend([like_query] * 5)
 
-    def count_by_status(self) -> dict:
-        conn = self._db.connect()
-        rows = conn.execute(
-            "SELECT status, COUNT(*) as n FROM taxpayers GROUP BY status"
-        ).fetchall()
-        return {r["status"]: r["n"] for r in rows}
+            if status_filter:
+                sql += " AND status = ?"
+                params.append(status_filter)
+
+            if type_filter:
+                sql += " AND taxpayer_type = ?"
+                params.append(type_filter)
+
+            sql += " ORDER BY registration_date DESC"
+
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_kpi_counts(self) -> Dict[str, int]:
+        conn = DatabaseConnection.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT status, COUNT(*) as count FROM taxpayers GROUP BY status")
+            rows = cursor.fetchall()
+            kpis = {"total": 0, "active": 0, "suspended": 0, "deregistered": 0}
+            for row in rows:
+                status = row["status"].lower()
+                kpis[status] = row["count"]
+                kpis["total"] += row["count"]
+            return kpis
+        finally:
+            conn.close()

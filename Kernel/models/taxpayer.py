@@ -1,41 +1,39 @@
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass
 from enum import Enum
+from datetime import datetime
 from typing import Optional
 
+class TaxpayerType(Enum):
+    INDIVIDUAL = "Individual"
+    COMPANY = "Company"
 
-class TaxpayerStatus(str, Enum):
+    @classmethod
+    def from_str(cls, value: str) -> "TaxpayerType":
+        for member in cls:
+            if member.value.lower() == value.lower():
+                return member
+        return cls.INDIVIDUAL
+
+class TaxpayerStatus(Enum):
     ACTIVE = "Active"
     SUSPENDED = "Suspended"
     DEREGISTERED = "Deregistered"
 
-
-class TaxpayerType(str, Enum):
-    INDIVIDUAL = "Individual"
-    COMPANY = "Company"
-    SELF_EMPLOYED = "Self-employed"
-
+    @classmethod
+    def from_str(cls, value: str) -> "TaxpayerStatus":
+        for member in cls:
+            if member.value.lower() == value.lower():
+                return member
+        return cls.ACTIVE
 
 @dataclass
 class Taxpayer:
-    id: str
-    name: str
+    id: Optional[int]
+    nin: str
+    full_name: str
+    taxpayer_type: TaxpayerType
+    status: TaxpayerStatus
     email: str
     phone: str
-    status: TaxpayerStatus
-    taxpayer_type: TaxpayerType
-    registration_date: str
-    address: str = ""
-    notes: str = ""
-
-    @staticmethod
-    def empty() -> "Taxpayer":
-        return Taxpayer(
-            id="",
-            name="",
-            email="",
-            phone="",
-            status=TaxpayerStatus.ACTIVE,
-            taxpayer_type=TaxpayerType.INDIVIDUAL,
-            registration_date=date.today().isoformat(),
-        )
+    address: str
+    registration_date: datetime

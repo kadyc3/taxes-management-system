@@ -1,20 +1,13 @@
 from dataclasses import dataclass
-from enum import Enum
-
-
-class AuditSeverity(str, Enum):
-    INFO = "info"
-    SUCCESS = "success"
-    WARNING = "warning"
-    DANGER = "danger"
-
+from datetime import datetime
+from typing import Optional
 
 @dataclass
 class AuditLog:
-    id: str
-    date: str
-    user: str
+    id: Optional[int]
+    username: str
     action: str
-    entity: str
-    description: str
-    severity: AuditSeverity
+    entity_type: str
+    entity_id: Optional[int]
+    details: Optional[str]
+    created_at: datetime
